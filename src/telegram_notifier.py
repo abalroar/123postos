@@ -68,27 +68,42 @@ def test_connection() -> bool:
 # Message formatters
 # ---------------------------------------------------------------------------
 
-def _format_price_line(price_brl: float, evaluation: dict) -> str:
-    """Return a formatted price + evaluation line."""
+def _fmt_brl(value: float) -> str:
+    """Format a float as Brazilian R$ string."""
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _fmt_points(pts: int) -> str:
+    """Format points with dot separator (e.g. 12.500 pts)."""
+    return f"{pts:,}".replace(",", ".") + " pts"
+
+
+def _format_price_line(price_brl: float, evaluation: dict, points: Optional[int] = None) -> str:
+    """Return a formatted price + evaluation line, with optional points."""
     emoji = evaluation.get("verdict_emoji", "⚪")
     verdict = evaluation.get("verdict", "?")
     pct = evaluation.get("pct_vs_median")
     p50 = evaluation.get("p50_ref")
 
-    price_str = f"R$ {price_brl:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    price_str = _fmt_brl(price_brl)
+
+    # Points suffix
+    pts_str = ""
+    if points:
+        pts_str = f"  |  {_fmt_points(points)}"
 
     if pct is not None and p50 is not None:
         direction = "abaixo" if pct < 0 else "acima"
-        p50_str = f"R$ {p50:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        p50_str = _fmt_brl(p50)
         return (
-            f"{emoji} <b>{price_str}</b> — {verdict} "
-            f"({abs(pct):.0f}% {direction} da mediana histórica {p50_str})"
+            f"{emoji} <b>{price_str}</b>{pts_str} — {verdict} "
+            f"({abs(pct):.0f}% {direction} da mediana {p50_str})"
         )
     elif pct is not None:
         direction = "abaixo" if pct < 0 else "acima"
-        return f"{emoji} <b>{price_str}</b> — {verdict} ({abs(pct):.0f}% {direction} da mediana)"
+        return f"{emoji} <b>{price_str}</b>{pts_str} — {verdict} ({abs(pct):.0f}% {direction} da mediana)"
     else:
-        return f"{emoji} <b>{price_str}</b> — {verdict} (sem histórico)"
+        return f"{emoji} <b>{price_str}</b>{pts_str} — {verdict} (sem histórico)"
 
 
 def format_weekday_alert(
@@ -122,7 +137,7 @@ def format_weekday_alert(
     fare = flight.get("fare_family") or "Full"
 
     evaluation["p50_ref"] = stats.get("p50")
-    price_line = _format_price_line(price_brl, evaluation)
+    price_line = _format_price_line(price_brl, evaluation, points=flight.get("points"))
 
     cash_url = (
         f"https://www.latamairlines.com/br/pt/oferta-voos"
@@ -189,7 +204,7 @@ def format_sunday_alert(
             f"  {last_flight['departure_time']} → {last_flight['arrival_time']}  "
             f"|  {last_flight['flight_number']}"
         )
-        lines.append(f"  {_format_price_line(last_flight['price_brl'], ev)}")
+        lines.append(f"  {_format_price_line(last_flight.get('price_brl', 0), ev, points=last_flight.get('points'))}")
     else:
         lines.append("🌙 <b>Último voo:</b> não encontrado")
 
@@ -207,7 +222,7 @@ def format_sunday_alert(
             f"  {cheapest_flight['departure_time']} → {cheapest_flight['arrival_time']}  "
             f"|  {cheapest_flight['flight_number']}"
         )
-        lines.append(f"  {_format_price_line(cheapest_flight['price_brl'], ev)}")
+        lines.append(f"  {_format_price_line(cheapest_flight.get('price_brl', 0), ev, points=cheapest_flight.get('points'))}")
         lines.append("")
 
     lines.append(
@@ -243,8 +258,10 @@ def send_daily_summary(results: list[dict]) -> bool:
             price = r.get("price_brl", 0)
             verdict = r.get("verdict", "?")
             emoji = r.get("verdict_emoji", "⚪")
-            price_str = f"R$ {price:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            lines.append(f"{emoji} {route} {date}: {price_str} — {verdict}")
+            price_str = _fmt_brl(price) if price else "—"
+            pts = r.get("points")
+            pts_str = f" | {_fmt_points(pts)}" if pts else ""
+            lines.append(f"{emoji} {route} {date}: {price_str}{pts_str} — {verdict}")
         elif status == "not_found":
             lines.append(f"⚫ {route} {date}: sem resultados")
         else:

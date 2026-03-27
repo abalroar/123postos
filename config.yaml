@@ -1,5 +1,16 @@
+# Data source: "scraper" (Playwright, default), "amadeus", or "auto" (scraper + fallback)
+data_source: scraper
+
+# Fetch LATAM Pass points prices in addition to R$ (requires extra page load per search)
+fetch_points: true
+
+# Scraper settings
+scraper:
+  headless: true
+  timeout_ms: 45000
+  delay_between_searches: 3.0  # seconds between page loads (anti-bot)
+
 monitoring:
-  # Routes to check (date ranges: next 3 weeks by default)
   weekday_routes:
     - origin: CGH
       destination: BSB
@@ -14,7 +25,7 @@ monitoring:
     - origin: BSB
       destination: CGH
       days_of_week: [6]  # 6=Sun
-      mode: "last_or_cheapest"  # last flight OR cheapest
+      mode: "last_or_cheapest"
       currency: BRL
       weeks_ahead: 3
     - origin: CGH
@@ -25,13 +36,10 @@ monitoring:
       weeks_ahead: 3
 
 alerts:
-  # Alert if price is at or below this percentile of historical average
   good_deal_percentile: 50  # p50 = median
-  # Always alert if no historical data
   alert_without_history: true
 
 schedule:
-  # Times to run the monitor (24h format, local timezone)
   run_times: ["08:00", "20:00"]
   timezone: "America/Sao_Paulo"
 

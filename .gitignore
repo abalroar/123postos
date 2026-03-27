@@ -7,4 +7,6 @@ data/history.csv
 *.egg-info/
 .venv/
 venv/
+.playwright/
+node_modules/
 
