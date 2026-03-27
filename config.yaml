@@ -39,6 +39,11 @@ alerts:
   good_deal_percentile: 50  # p50 = median
   alert_without_history: true
 
+# Your average cost to acquire 1.000 LATAM Pass points (in BRL).
+# Used to compare: is it cheaper to pay in R$ or redeem points?
+points:
+  cost_per_thousand: 24.50
+
 schedule:
   run_times: ["08:00", "20:00"]
   timezone: "America/Sao_Paulo"

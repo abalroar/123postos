@@ -44,7 +44,12 @@ logger = logging.getLogger("latam_monitor")
 
 from src.flight_search import search_flights, filter_last_or_cheapest  # noqa: E402
 from src.database import init_db, save_price_check  # noqa: E402
-from src.price_analyzer import load_history, get_route_stats, evaluate_deal  # noqa: E402
+from src.price_analyzer import (  # noqa: E402
+    load_history,
+    get_route_stats,
+    evaluate_deal,
+    compare_cash_vs_points,
+)
 from src.telegram_notifier import (  # noqa: E402
     format_weekday_alert,
     format_sunday_alert,
@@ -97,6 +102,7 @@ def check_weekday_routes(config: dict, history: list[dict], db_path: str) -> lis
     alert_without_history = alert_cfg.get("alert_without_history", True)
     data_source = config.get("data_source", "scraper")
     fetch_points = config.get("fetch_points", True)
+    pts_cost = config.get("points", {}).get("cost_per_thousand", 0)
 
     for route in weekday_routes:
         origin = route["origin"]
@@ -159,6 +165,13 @@ def check_weekday_routes(config: dict, history: list[dict], db_path: str) -> lis
 
             evaluation = evaluate_deal(best.get("price_brl", 0), stats)
 
+            # Cash vs Points comparison
+            cvp = None
+            if pts_cost > 0:
+                cvp = compare_cash_vs_points(
+                    best.get("price_brl"), best.get("points"), pts_cost
+                )
+
             should_alert = evaluation["is_good_deal"] or (
                 alert_without_history and stats["count"] == 0
             )
@@ -171,6 +184,7 @@ def check_weekday_routes(config: dict, history: list[dict], db_path: str) -> lis
                 "points": best.get("points"),
                 "verdict": evaluation["verdict"],
                 "verdict_emoji": evaluation.get("verdict_emoji", "⚪"),
+                "pay_with": cvp["winner"] if cvp else None,
                 "alert_sent": False,
             }
 
@@ -181,6 +195,7 @@ def check_weekday_routes(config: dict, history: list[dict], db_path: str) -> lis
                     stats=stats,
                     date_str=date_str,
                     route_config=route,
+                    cash_vs_points=cvp,
                 )
                 ok = send_message(msg)
                 result_entry["alert_sent"] = ok
@@ -207,6 +222,7 @@ def check_sunday_routes(config: dict, history: list[dict], db_path: str) -> list
     alert_without_history = alert_cfg.get("alert_without_history", True)
     data_source = config.get("data_source", "scraper")
     fetch_points = config.get("fetch_points", True)
+    pts_cost = config.get("points", {}).get("cost_per_thousand", 0)
 
     for route in sunday_routes:
         origin = route["origin"]
@@ -270,8 +286,22 @@ def check_sunday_routes(config: dict, history: list[dict], db_path: str) -> list
             eval_last = evaluate_deal(last_flight["price_brl"], stats) if last_flight and last_flight.get("price_brl") else None
             eval_cheap = evaluate_deal(cheapest_flight["price_brl"], stats) if cheapest_flight and cheapest_flight.get("price_brl") else None
 
+            # Cash vs Points for each
+            cvp_last = None
+            cvp_cheap = None
+            if pts_cost > 0:
+                if last_flight:
+                    cvp_last = compare_cash_vs_points(
+                        last_flight.get("price_brl"), last_flight.get("points"), pts_cost
+                    )
+                if cheapest_flight:
+                    cvp_cheap = compare_cash_vs_points(
+                        cheapest_flight.get("price_brl"), cheapest_flight.get("points"), pts_cost
+                    )
+
             primary = last_flight or cheapest_flight
             primary_eval = eval_last or eval_cheap
+            primary_cvp = cvp_last or cvp_cheap
             should_alert = primary is not None and (
                 (primary_eval and primary_eval["is_good_deal"])
                 or alert_without_history
@@ -285,6 +315,7 @@ def check_sunday_routes(config: dict, history: list[dict], db_path: str) -> list
                 "points": primary.get("points") if primary else None,
                 "verdict": primary_eval["verdict"] if primary_eval else "---",
                 "verdict_emoji": primary_eval.get("verdict_emoji", "⚪") if primary_eval else "⚪",
+                "pay_with": primary_cvp["winner"] if primary_cvp else None,
                 "alert_sent": False,
             }
 
@@ -297,6 +328,8 @@ def check_sunday_routes(config: dict, history: list[dict], db_path: str) -> list
                     stats=stats,
                     date_str=date_str,
                     route_config=route,
+                    cvp_last=cvp_last,
+                    cvp_cheap=cvp_cheap,
                 )
                 ok = send_message(msg)
                 result_entry["alert_sent"] = ok

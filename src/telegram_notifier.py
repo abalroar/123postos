@@ -106,23 +106,46 @@ def _format_price_line(price_brl: float, evaluation: dict, points: Optional[int]
         return f"{emoji} <b>{price_str}</b>{pts_str} — {verdict} (sem histórico)"
 
 
+def _format_cash_vs_points(comparison: Optional[dict]) -> str:
+    """Format the R$ vs Points recommendation block."""
+    if not comparison:
+        return ""
+    winner = comparison["winner"]
+    pts_cost = comparison["points_cost_brl"]
+
+    if winner == "points":
+        return (
+            f"\n🏆 <b>USE PONTOS</b> — custo equivalente {_fmt_brl(pts_cost)}, "
+            f"economia de {_fmt_brl(comparison['savings_brl'])} ({comparison['savings_pct']:.0f}%)"
+        )
+    elif winner == "cash":
+        return (
+            f"\n🏆 <b>PAGUE EM R$</b> — pontos custariam {_fmt_brl(pts_cost)}, "
+            f"economia de {_fmt_brl(comparison['savings_brl'])} ({comparison['savings_pct']:.0f}%)"
+        )
+    else:
+        return f"\n🤷 Tanto faz — R$ e pontos custam praticamente o mesmo ({_fmt_brl(pts_cost)})"
+
+
 def format_weekday_alert(
     flight: dict,
     evaluation: dict,
     stats: dict,
     date_str: str,
     route_config: dict,
+    cash_vs_points: Optional[dict] = None,
 ) -> str:
     """
     Format an alert for the Wed/Fri CGH→BSB Full-fare monitor.
 
     Parameters
     ----------
-    flight      : parsed flight dict from amadeus_client.parse_offer()
-    evaluation  : result of price_analyzer.evaluate_deal()
-    stats       : result of price_analyzer.get_route_stats()
-    date_str    : flight date YYYY-MM-DD
-    route_config: dict from config.yaml weekday_routes entry
+    flight         : parsed flight dict
+    evaluation     : result of price_analyzer.evaluate_deal()
+    stats          : result of price_analyzer.get_route_stats()
+    date_str       : flight date YYYY-MM-DD
+    route_config   : dict from config.yaml weekday_routes entry
+    cash_vs_points : result of price_analyzer.compare_cash_vs_points() or None
     """
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     dow = _DOW_PT[dt.weekday()]
@@ -151,10 +174,17 @@ def format_weekday_alert(
         f"🕐 {dep} → {arr}  |  Voo {fn}  |  Tarifa: {fare}",
         "",
         price_line,
-        "",
-        f"🔗 <a href='{cash_url}'>Comprar em R$</a>  |  "
-        f"<a href='{points_url}'>Ver em Pontos LATAM Pass</a>",
     ]
+
+    cvp_line = _format_cash_vs_points(cash_vs_points)
+    if cvp_line:
+        lines.append(cvp_line)
+
+    lines.append("")
+    lines.append(
+        f"🔗 <a href='{cash_url}'>Comprar em R$</a>  |  "
+        f"<a href='{points_url}'>Ver em Pontos LATAM Pass</a>"
+    )
 
     if stats["count"] > 0:
         p25_str = f"R$ {stats['p25']:,.0f}".replace(",", ".")
@@ -176,9 +206,13 @@ def format_sunday_alert(
     stats: dict,
     date_str: str,
     route_config: dict,
+    cvp_last: Optional[dict] = None,
+    cvp_cheap: Optional[dict] = None,
 ) -> str:
     """
     Format an alert for the Sunday BSB↔CGH monitor (last OR cheapest).
+
+    cvp_last / cvp_cheap : cash-vs-points comparison dicts (or None).
     """
     dt = datetime.strptime(date_str, "%Y-%m-%d")
     date_display = dt.strftime("Dom, %d/%m/%Y")
@@ -205,6 +239,9 @@ def format_sunday_alert(
             f"|  {last_flight['flight_number']}"
         )
         lines.append(f"  {_format_price_line(last_flight.get('price_brl', 0), ev, points=last_flight.get('points'))}")
+        cvp_line = _format_cash_vs_points(cvp_last)
+        if cvp_line:
+            lines.append(f"  {cvp_line.strip()}")
     else:
         lines.append("🌙 <b>Último voo:</b> não encontrado")
 
@@ -223,6 +260,9 @@ def format_sunday_alert(
             f"|  {cheapest_flight['flight_number']}"
         )
         lines.append(f"  {_format_price_line(cheapest_flight.get('price_brl', 0), ev, points=cheapest_flight.get('points'))}")
+        cvp_line = _format_cash_vs_points(cvp_cheap)
+        if cvp_line:
+            lines.append(f"  {cvp_line.strip()}")
         lines.append("")
 
     lines.append(
@@ -261,7 +301,13 @@ def send_daily_summary(results: list[dict]) -> bool:
             price_str = _fmt_brl(price) if price else "—"
             pts = r.get("points")
             pts_str = f" | {_fmt_points(pts)}" if pts else ""
-            lines.append(f"{emoji} {route} {date}: {price_str}{pts_str} — {verdict}")
+            pay = r.get("pay_with")
+            pay_str = ""
+            if pay == "points":
+                pay_str = " [PONTOS]"
+            elif pay == "cash":
+                pay_str = " [R$]"
+            lines.append(f"{emoji} {route} {date}: {price_str}{pts_str} — {verdict}{pay_str}")
         elif status == "not_found":
             lines.append(f"⚫ {route} {date}: sem resultados")
         else:

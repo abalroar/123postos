@@ -251,6 +251,79 @@ def evaluate_deal(price_brl: float, stats: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Cash vs Points comparison
+# ---------------------------------------------------------------------------
+
+def compare_cash_vs_points(
+    price_brl: Optional[float],
+    points: Optional[int],
+    cost_per_thousand_pts: float,
+) -> Optional[dict]:
+    """
+    Compare paying in R$ vs redeeming LATAM Pass points.
+
+    Parameters
+    ----------
+    price_brl             : cash price in BRL (Full fare)
+    points                : points needed for the same flight (Full fare)
+    cost_per_thousand_pts : user's average acquisition cost per 1 000 points in BRL
+                            (e.g. 24.50 means each 1 000 pts cost R$ 24,50)
+
+    Returns
+    -------
+    dict with keys:
+        points_cost_brl : equivalent BRL cost of using points
+        savings_brl     : how much cheaper the winner is (always positive)
+        savings_pct     : savings as % of the more expensive option
+        winner          : "cash" | "points" | "equal"
+        recommendation  : human-readable string (Portuguese)
+    Returns None if either price_brl or points is missing.
+    """
+    if not price_brl or not points or points <= 0:
+        return None
+
+    points_cost_brl = (points / 1000) * cost_per_thousand_pts
+
+    diff = price_brl - points_cost_brl
+    if abs(diff) < 1.0:  # less than R$1 difference — effectively equal
+        return {
+            "points_cost_brl": round(points_cost_brl, 2),
+            "savings_brl": 0.0,
+            "savings_pct": 0.0,
+            "winner": "equal",
+            "recommendation": "Tanto faz — R$ e pontos custam praticamente o mesmo.",
+        }
+
+    if diff > 0:
+        # Points are cheaper
+        pct = (diff / price_brl) * 100
+        return {
+            "points_cost_brl": round(points_cost_brl, 2),
+            "savings_brl": round(diff, 2),
+            "savings_pct": round(pct, 1),
+            "winner": "points",
+            "recommendation": (
+                f"USE PONTOS — economia de R$ {diff:,.2f} ({pct:.0f}%) "
+                f"vs pagar em R$"
+            ),
+        }
+    else:
+        # Cash is cheaper
+        savings = abs(diff)
+        pct = (savings / points_cost_brl) * 100
+        return {
+            "points_cost_brl": round(points_cost_brl, 2),
+            "savings_brl": round(savings, 2),
+            "savings_pct": round(pct, 1),
+            "winner": "cash",
+            "recommendation": (
+                f"PAGUE EM R$ — economia de R$ {savings:,.2f} ({pct:.0f}%) "
+                f"vs usar pontos"
+            ),
+        }
+
+
+# ---------------------------------------------------------------------------
 # LATAM URL generators
 # ---------------------------------------------------------------------------
 
