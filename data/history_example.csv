@@ -1,0 +1,11 @@
+date,origin,dest,price_brl,points,fare_family,flight_number,notes
+2024-10-04,CGH,BSB,489.90,18500,FULL,LA3051,Compra antecipada 3 semanas
+2024-10-11,CGH,BSB,534.50,21000,FULL,LA3059,Sexta-feira noite
+2024-10-18,CGH,BSB,612.00,24500,FULL,LA3055,Semana cheia - mais caro
+2024-11-01,CGH,BSB,467.30,17000,FULL,LA3051,Feriado - tarifa especial
+2024-11-15,CGH,BSB,780.00,30000,FULL,LA3057,Congresso em Brasilia
+2024-11-22,CGH,BSB,519.90,20000,FULL,LA3051,Compra normal
+2024-10-06,BSB,CGH,398.50,15500,STANDARD,LA3060,Último voo domingo
+2024-10-13,BSB,CGH,445.00,17500,STANDARD,LA3062,Último voo domingo
+2024-10-20,BSB,CGH,510.00,19500,STANDARD,LA3064,Domingo lotado
+2024-11-03,BSB,CGH,372.90,14000,STANDARD,LA3060,Feriado - voo vazio

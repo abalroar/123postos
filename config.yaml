@@ -1,0 +1,40 @@
+monitoring:
+  # Routes to check (date ranges: next 3 weeks by default)
+  weekday_routes:
+    - origin: CGH
+      destination: BSB
+      days_of_week: [2, 4]  # 0=Mon, 2=Wed, 4=Fri
+      min_departure_time: "20:00"
+      airline: "LA"
+      fare_family: "FULL"
+      currency: BRL
+      weeks_ahead: 3
+
+  sunday_routes:
+    - origin: BSB
+      destination: CGH
+      days_of_week: [6]  # 6=Sun
+      mode: "last_or_cheapest"  # last flight OR cheapest
+      currency: BRL
+      weeks_ahead: 3
+    - origin: CGH
+      destination: BSB
+      days_of_week: [6]
+      mode: "last_or_cheapest"
+      currency: BRL
+      weeks_ahead: 3
+
+alerts:
+  # Alert if price is at or below this percentile of historical average
+  good_deal_percentile: 50  # p50 = median
+  # Always alert if no historical data
+  alert_without_history: true
+
+schedule:
+  # Times to run the monitor (24h format, local timezone)
+  run_times: ["08:00", "20:00"]
+  timezone: "America/Sao_Paulo"
+
+data:
+  history_csv: "data/history.csv"
+  database: "data/prices.db"
