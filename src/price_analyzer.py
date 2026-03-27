@@ -78,12 +78,20 @@ def load_history(csv_path: str) -> list[dict]:
 
             if not origin or not destination:
                 continue
-            # Try to parse price
+            # Try to parse price — handle both BRL formats:
+            #   Brazilian: "1.234,56" (dot=thousands, comma=decimal)
+            #   Standard:  "1234.56"  (dot=decimal)
             price_brl: Optional[float] = None
             try:
-                price_brl = float(
-                    price_raw.replace("R$", "").replace(".", "").replace(",", ".").strip()
-                )
+                cleaned = price_raw.replace("R$", "").replace("\xa0", "").replace(" ", "").strip()
+                if "," in cleaned and "." in cleaned:
+                    # Both separators: dot=thousands, comma=decimal  → "1.234,56"
+                    cleaned = cleaned.replace(".", "").replace(",", ".")
+                elif "," in cleaned:
+                    # Only comma: comma=decimal → "489,90"
+                    cleaned = cleaned.replace(",", ".")
+                # else: standard dot-decimal "489.90" — use as-is
+                price_brl = float(cleaned)
             except ValueError:
                 pass  # no price — still useful for points-only rows
 
