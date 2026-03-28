@@ -2,7 +2,7 @@ name: LATAM Flight Monitor
 
 on:
   schedule:
-    - cron: '0 11 * * *'   # 08:00 BRT (UTC-3, Brasil não tem horário de verão desde 2019)
+    - cron: '0 11 * * *'   # 08:00 BRT (UTC-3)
     - cron: '0 23 * * *'   # 20:00 BRT
   workflow_dispatch:
     inputs:
@@ -15,15 +15,15 @@ on:
         required: false
         default: ''
       months:
-        description: 'Meses à frente: 1, 2, 3, 6 ou 12'
+        description: 'Meses a frente: 1, 2, 3, 6 ou 12'
         required: false
         default: '3'
       weekday:
-        description: 'Dia: 1=Segunda 2=Terça 3=Quarta 4=Quinta 5=Sexta 6=Sábado 7=Domingo 0=Qualquer'
+        description: 'Dia: 1=Segunda 2=Terca 3=Quarta 4=Quinta 5=Sexta 6=Sabado 7=Domingo 0=Qualquer'
         required: false
         default: '0'
       time_period:
-        description: 'Horário: madrugada (00-06) / manha (06-12) / tarde (12-19) / noite (19-24) / qualquer'
+        description: 'Horario: madrugada / manha / tarde / noite / qualquer'
         required: false
         default: 'qualquer'
 
@@ -36,7 +36,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -45,7 +45,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run monitor (agendado ou manual sem parâmetros)
+      - name: Busca agendada (08h e 20h BRT) ou dispatch sem parametros
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.origin == '') }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -54,7 +54,7 @@ jobs:
           DATA_SOURCE: google
         run: python main.py
 
-      - name: Busca customizada (manual com parâmetros)
+      - name: Busca customizada (dispatch com origem e destino)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.origin != '' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
