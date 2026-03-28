@@ -15,7 +15,7 @@ Este projeto monitora preços de voos LATAM e envia alertas no Telegram.
 ### Mac/Linux
 
 ```bash
-cd /workspace/123postos
+cd /Users/matheusjprates/123postos
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
