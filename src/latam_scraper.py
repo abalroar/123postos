@@ -396,6 +396,20 @@ async def scrape_flights(
                 flights = await _parse_dom(page, mode)
                 logger.info("DOM fallback -> %d flight(s)", len(flights))
 
+            # Debug: salva screenshot e título da página se não encontrou nada
+            if not flights:
+                try:
+                    title = await page.title()
+                    logger.warning("Página carregada: '%s' | URL: %s", title, page.url)
+                    from pathlib import Path
+                    ss_dir = Path(__file__).parent.parent / "logs"
+                    ss_dir.mkdir(exist_ok=True)
+                    ss_path = ss_dir / f"debug_{origin}_{dest}_{date_str}.png"
+                    await page.screenshot(path=str(ss_path))
+                    logger.warning("Screenshot salvo: %s", ss_path)
+                except Exception as ss_err:
+                    logger.debug("Screenshot falhou: %s", ss_err)
+
             # Save raw captured JSON for debugging (first run)
             if captured and logger.isEnabledFor(logging.DEBUG):
                 for i, c in enumerate(captured[:3]):
