@@ -2,7 +2,7 @@
 Google Flights client usando a biblioteca fast-flights.
 
 Busca dados sem browser, via HTTP + protobuf encoding do Google.
-Filtra apenas voos operados pela LATAM.
+Filtra apenas voos operados pela LATAM, diretos (sem escala).
 """
 
 import logging
@@ -36,11 +36,8 @@ def _parse_price(price_str: str) -> Optional[float]:
     # Remove símbolo de moeda e espaços não-quebráveis
     s = price_str.replace("R$", "").replace("\xa0", "").replace(" ", "").strip()
     # Formato BR: ponto = separador de milhar, vírgula = decimal
-    # Remove pontos que são separadores de milhar (seguidos de 3 dígitos)
     s = re.sub(r'\.(?=\d{3}(\D|$))', '', s)
-    # Converte vírgula decimal em ponto
     s = s.replace(',', '.')
-    # Remove qualquer caractere não numérico restante (exceto ponto decimal)
     s = re.sub(r'[^\d.]', '', s)
     try:
         val = float(s)
@@ -63,7 +60,7 @@ def search_google_flights(
     min_dep_time: Optional[str] = None,
 ) -> list[dict]:
     """
-    Busca voos LATAM no Google Flights para a rota e data informadas.
+    Busca voos LATAM diretos no Google Flights para a rota e data informadas.
 
     Parâmetros
     ----------
@@ -110,6 +107,14 @@ def search_google_flights(
         if "LATAM" not in (f.name or "").upper():
             continue
 
+        # Filtra apenas voos diretos (sem escala)
+        # A biblioteca converte: en "Nonstop"→0, pt-BR "Sem escalas"→"Unknown",
+        # pt-BR "1 parada"→1, pt-BR "2 paradas"→2
+        # Portanto: int>0 = tem escala; 0 ou "Unknown" = direto
+        stops_val = f.stops
+        if isinstance(stops_val, int) and stops_val > 0:
+            continue
+
         dep_time = _parse_time(f.departure)
         arr_time = _parse_time(f.arrival)
         price = _parse_price(f.price)
@@ -126,18 +131,18 @@ def search_google_flights(
             "departure_time": dep_time,
             "arrival_time": arr_time,
             "price_brl": price,
-            "points": None,           # Google Flights não exibe pontos LATAM Pass
-            "flight_number": "",      # fast-flights não expõe número de voo
-            "fare_family": "",        # não disponível via Google Flights
+            "points": None,
+            "flight_number": "",
+            "fare_family": "",
             "is_refundable": False,
             "duration": f.duration or "",
-            "stops": getattr(f, "stops", 0),
+            "stops": stops_val,
             "origin": origin.upper(),
             "destination": dest.upper(),
         })
 
     logger.info(
-        "Google Flights %s->%s %s: %d voo(s) LATAM",
+        "Google Flights %s->%s %s: %d voo(s) LATAM diretos",
         origin, dest, date_str, len(flights),
     )
     return flights
