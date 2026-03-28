@@ -1,6 +1,16 @@
 # Data source: "scraper" (Playwright, default), "amadeus", or "auto" (scraper + fallback)
 data_source: scraper
 
+# Which months to search for flights.
+# start_months_ahead: começar a buscar daqui a N meses (3 = daqui a 3 meses)
+# end_months_ahead:   buscar até N meses à frente
+# Regra: como você sempre tem passagens para os próximos 2 meses,
+#        start=3 garante que só busca meses que você ainda não tem.
+# Exemplo: hoje = março → start=3 significa junho, end=5 significa agosto (jun + jul + ago)
+date_range:
+  start_months_ahead: 3
+  end_months_ahead: 5
+
 # Fetch LATAM Pass points prices in addition to R$ (requires extra page load per search)
 fetch_points: true
 

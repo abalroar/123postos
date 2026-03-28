@@ -26,6 +26,8 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
+from dateutil.relativedelta import relativedelta
+
 import yaml
 from dotenv import load_dotenv
 
@@ -73,22 +75,22 @@ def load_config(path: str = "config.yaml") -> dict:
 # Date helpers
 # ---------------------------------------------------------------------------
 
-def _next_n_dates_for_weekday(weekday: int, weeks_ahead: int) -> list[str]:
+def _get_dates_for_route(days_of_week: list[int], date_range_cfg: dict) -> list[str]:
     today = date.today()
+    start_months = date_range_cfg.get("start_months_ahead", 0)
+    end_months = date_range_cfg.get("end_months_ahead", 1)
+
+    # First day of the start month, last day of the end month
+    start_date = (today.replace(day=1) + relativedelta(months=start_months))
+    end_date = (today.replace(day=1) + relativedelta(months=end_months + 1) - timedelta(days=1))
+
     results = []
-    d = today + timedelta(days=1)
-    while len(results) < weeks_ahead:
-        if d.weekday() == weekday:
+    d = start_date
+    while d <= end_date:
+        if d.weekday() in days_of_week:
             results.append(d.isoformat())
         d += timedelta(days=1)
-    return results
-
-
-def _get_dates_for_route(days_of_week: list[int], weeks_ahead: int) -> list[str]:
-    all_dates = []
-    for dow in days_of_week:
-        all_dates.extend(_next_n_dates_for_weekday(dow, weeks_ahead))
-    return sorted(set(all_dates))
+    return sorted(results)
 
 
 # ---------------------------------------------------------------------------
@@ -110,9 +112,9 @@ def check_weekday_routes(config: dict, history: list[dict], db_path: str) -> lis
         days_of_week = route.get("days_of_week", [2, 4])
         min_dep_time = route.get("min_departure_time", "20:00")
         fare_family = route.get("fare_family", "FULL")
-        weeks_ahead = route.get("weeks_ahead", 3)
+        date_range_cfg = config.get("date_range", {"start_months_ahead": 0, "end_months_ahead": 1})
 
-        dates = _get_dates_for_route(days_of_week, weeks_ahead)
+        dates = _get_dates_for_route(days_of_week, date_range_cfg)
         stats = get_route_stats(history, origin, dest, fare_family)
 
         for date_str in dates:
@@ -228,9 +230,9 @@ def check_sunday_routes(config: dict, history: list[dict], db_path: str) -> list
         origin = route["origin"]
         dest = route["destination"]
         days_of_week = route.get("days_of_week", [6])
-        weeks_ahead = route.get("weeks_ahead", 3)
+        date_range_cfg = config.get("date_range", {"start_months_ahead": 0, "end_months_ahead": 1})
 
-        dates = _get_dates_for_route(days_of_week, weeks_ahead)
+        dates = _get_dates_for_route(days_of_week, date_range_cfg)
         stats = get_route_stats(history, origin, dest)
 
         for date_str in dates:
