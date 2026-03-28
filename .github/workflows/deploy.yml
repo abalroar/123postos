@@ -2,7 +2,7 @@ name: Deploy Bot (Fly.io)
 
 on:
   push:
-    branches: [main]
+    branches: [claude/flight-price-monitor-B7iNh]
     paths:
       - 'bot.py'
       - 'Dockerfile'
