@@ -372,6 +372,20 @@ async def scrape_flights(
 
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+            # Aceita banner de cookies se aparecer
+            try:
+                accept_btn = await page.wait_for_selector(
+                    "button:has-text('Aceite todos os cookies')",
+                    timeout=8000,
+                )
+                if accept_btn:
+                    await accept_btn.click()
+                    logger.info("Banner de cookies aceito.")
+                    await asyncio.sleep(2)
+            except Exception:
+                pass  # sem banner, continua normalmente
+
             try:
                 await page.wait_for_selector(
                     "[class*='flight'], [class*='itinerary'], "
