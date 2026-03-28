@@ -41,17 +41,26 @@ if not ORIGIN or not DEST:
     logger.error("SEARCH_ORIGIN e SEARCH_DEST são obrigatórios.")
     sys.exit(1)
 
-MONTHS  = int(os.environ.get("SEARCH_MONTHS", "3"))
-WEEKDAY = int(os.environ.get("SEARCH_WEEKDAY", "-1"))   # -1 = qualquer
-TIME_KEY = os.environ.get("SEARCH_TIME_PERIOD", "qualquer").lower().strip()
+MONTHS       = int(os.environ.get("SEARCH_MONTHS", "3"))
+# 0 = qualquer, 1=Seg … 7=Dom  (converte para Python weekday: 0=Seg…6=Dom)
+_WEEKDAY_INPUT = int(os.environ.get("SEARCH_WEEKDAY", "0"))
+WEEKDAY_NUM  = _WEEKDAY_INPUT                        # 0–7 para exibição
+WEEKDAY      = (_WEEKDAY_INPUT - 1) if _WEEKDAY_INPUT >= 1 else None  # Python
+TIME_KEY     = os.environ.get("SEARCH_TIME_PERIOD", "qualquer").lower().strip()
 
 WEEKDAY_SHORT = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+WEEKDAY_LABEL = {
+    0: "Qualquer dia",
+    1: "Segunda-feira", 2: "Terça-feira", 3: "Quarta-feira",
+    4: "Quinta-feira",  5: "Sexta-feira", 6: "Sábado", 7: "Domingo",
+}
 
 TIME_PERIODS = {
-    "manha":    ("Manhã (06-12)",  "06:00", "11:59"),
-    "tarde":    ("Tarde (12-19)",  "12:00", "18:59"),
-    "noite":    ("Noite (19+)",    "19:00", None),
-    "qualquer": ("Qualquer",       None,    None),
+    "madrugada": ("Madrugada (00h–05h59)", "00:00", "05:59"),
+    "manha":     ("Manhã (06h–11h59)",     "06:00", "11:59"),
+    "tarde":     ("Tarde (12h–18h59)",     "12:00", "18:59"),
+    "noite":     ("Noite (19h–23h59)",     "19:00", "23:59"),
+    "qualquer":  ("Qualquer horário",      None,    None),
 }
 if TIME_KEY not in TIME_PERIODS:
     TIME_KEY = "qualquer"
@@ -60,20 +69,21 @@ if TIME_KEY not in TIME_PERIODS:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def get_dates(months: int, weekday: int) -> list[date]:
+def get_dates(months: int, weekday) -> list[date]:
+    """weekday: None = qualquer, 0–6 = Python weekday (Seg=0)."""
     today = date.today()
     end = today + relativedelta(months=months)
     out = []
     d = today + timedelta(days=1)
     while d <= end:
-        if weekday == -1 or d.weekday() == weekday:
+        if weekday is None or d.weekday() == weekday:
             out.append(d)
         d += timedelta(days=1)
     return out
 
 
 def in_period(dep_time: str, time_key: str) -> bool:
-    _, min_t, max_t = TIME_PERIODS[time_key]
+    _, min_t, max_t = TIME_PERIODS.get(time_key, TIME_PERIODS["qualquer"])
     if not min_t:
         return True
     if dep_time < min_t:
@@ -114,8 +124,8 @@ def main():
     from src.telegram_notifier import send_message
 
     dates = get_dates(MONTHS, WEEKDAY)
-    period_label = TIME_PERIODS[TIME_KEY][0]
-    weekday_label = WEEKDAY_SHORT[WEEKDAY] if WEEKDAY >= 0 else "Qualquer dia"
+    period_label  = TIME_PERIODS[TIME_KEY][0]
+    weekday_label = WEEKDAY_LABEL.get(WEEKDAY_NUM, "Qualquer dia")
 
     logger.info(
         "Buscando LATAM %s→%s | %d datas | %s | %s",

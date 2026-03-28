@@ -73,19 +73,39 @@ if not ALLOWED_IDS:
 # ---------------------------------------------------------------------------
 AIRPORTS = ["CGH", "GRU", "BSB", "SDU", "GIG", "CNF", "FOR", "REC", "SSA", "POA"]
 
-WEEKDAYS = {
-    "Seg": 0, "Ter": 1, "Qua": 2, "Qui": 3,
-    "Sex": 4, "Sáb": 5, "Dom": 6, "Qualquer": None,
+AIRPORT_NAMES = {
+    "CGH": "Congonhas · SP",
+    "GRU": "Guarulhos · SP",
+    "BSB": "Brasília · DF",
+    "SDU": "Santos Dumont · RJ",
+    "GIG": "Galeão · RJ",
+    "CNF": "Confins · MG",
+    "FOR": "Fortaleza · CE",
+    "REC": "Recife · PE",
+    "SSA": "Salvador · BA",
+    "POA": "Porto Alegre · RS",
 }
-WEEKDAY_NAMES_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+
+# Dias: 1=Segunda … 7=Domingo (exibição para o usuário)
+# Python weekday: 0=Seg … 6=Dom → converter com (n-1)
+WEEKDAY_BUTTONS = {
+    "1 · Seg": 1, "2 · Ter": 2, "3 · Qua": 3, "4 · Qui": 4,
+    "5 · Sex": 5, "6 · Sáb": 6, "7 · Dom": 7, "0 · Qualquer": 0,
+}
+WEEKDAY_LABEL = {
+    0: "Qualquer dia",
+    1: "Segunda-feira", 2: "Terça-feira", 3: "Quarta-feira",
+    4: "Quinta-feira",  5: "Sexta-feira", 6: "Sábado", 7: "Domingo",
+}
 WEEKDAY_SHORT = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
-# Períodos: (label_botão, min_dep, max_dep ou None)
+# Períodos: chave → (emoji+label, min_dep, max_dep ou None)
 TIME_PERIODS = {
-    "manha":    ("🌅 Manhã (06-12)",  "06:00", "11:59"),
-    "tarde":    ("🌆 Tarde (12-19)",  "12:00", "18:59"),
-    "noite":    ("🌙 Noite (19+)",    "19:00", None),
-    "qualquer": ("⏰ Qualquer",        None,    None),
+    "madrugada": ("🌙 Madrugada  00h–05h59", "00:00", "05:59"),
+    "manha":     ("🌅 Manhã      06h–11h59", "06:00", "11:59"),
+    "tarde":     ("🌆 Tarde      12h–18h59", "12:00", "18:59"),
+    "noite":     ("🌃 Noite      19h–23h59", "19:00", "23:59"),
+    "qualquer":  ("⏰ Qualquer horário",      None,    None),
 }
 
 # Estados do ConversationHandler
@@ -126,8 +146,48 @@ def _airport_keyboard(exclude: Optional[str] = None) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(a, callback_data=a) for a in row]
         for row in rows
     ]
-    keyboard.append([InlineKeyboardButton("✏️ Outro (digitar)", callback_data="__custom__")])
+    keyboard.append([InlineKeyboardButton("✏️ Outro — digitar código IATA", callback_data="__custom__")])
     return InlineKeyboardMarkup(keyboard)
+
+
+def _airport_list_text() -> str:
+    return "\n".join(f"  <code>{k}</code> = {v}" for k, v in AIRPORT_NAMES.items())
+
+
+def _months_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("1 mês",  callback_data="1"),
+         InlineKeyboardButton("2 meses", callback_data="2"),
+         InlineKeyboardButton("3 meses", callback_data="3")],
+        [InlineKeyboardButton("6 meses", callback_data="6"),
+         InlineKeyboardButton("12 meses", callback_data="12")],
+    ])
+
+
+def _weekday_keyboard() -> InlineKeyboardMarkup:
+    items = list(WEEKDAY_BUTTONS.items())
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(label, callback_data=str(num)) for label, num in items[:4]],
+        [InlineKeyboardButton(label, callback_data=str(num)) for label, num in items[4:]],
+    ])
+
+
+def _time_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(TIME_PERIODS["madrugada"][0], callback_data="madrugada"),
+         InlineKeyboardButton(TIME_PERIODS["manha"][0],     callback_data="manha")],
+        [InlineKeyboardButton(TIME_PERIODS["tarde"][0],     callback_data="tarde"),
+         InlineKeyboardButton(TIME_PERIODS["noite"][0],     callback_data="noite")],
+        [InlineKeyboardButton(TIME_PERIODS["qualquer"][0],  callback_data="qualquer")],
+    ])
+
+
+def _months_end_date(months: int) -> str:
+    from dateutil.relativedelta import relativedelta as rd
+    end = date.today() + rd(months=months)
+    months_pt = ["jan", "fev", "mar", "abr", "mai", "jun",
+                 "jul", "ago", "set", "out", "nov", "dez"]
+    return f"{end.day:02d}/{months_pt[end.month-1]}/{end.year}"
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +207,7 @@ def _get_search_dates(months_ahead: int, weekday: Optional[int]) -> list[date]:
 
 def _in_period(dep_time: str, time_key: str) -> bool:
     _, min_t, max_t = TIME_PERIODS[time_key]
-    if min_t is None:
+    if not min_t:
         return True
     if dep_time < min_t:
         return False
@@ -220,14 +280,22 @@ def _format_results(origin: str, dest: str, results: dict, time_key: str) -> str
 
 
 # ---------------------------------------------------------------------------
-# ConversationHandler — /run interativo
+# ConversationHandler — /run interativo (estilo URA)
 # ---------------------------------------------------------------------------
+
+_STEP_HEADER = "✈️ <b>LATAM Monitor</b> — Nova busca\n─────────────────────\n"
+
+
 async def cmd_run_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update):
         return ConversationHandler.END
     context.user_data.clear()
     await update.message.reply_text(
-        "✈️ <b>Busca LATAM</b>\n\nEscolha o aeroporto de <b>origem</b>:",
+        _STEP_HEADER
+        + "<b>Passo 1 de 5 — AEROPORTO DE ORIGEM</b>\n\n"
+        "De onde você vai partir?\n\n"
+        + _airport_list_text()
+        + "\n\n<i>Não encontrou? Use ✏️ Outro para digitar qualquer código IATA.</i>",
         reply_markup=_airport_keyboard(),
         parse_mode="HTML",
     )
@@ -238,12 +306,25 @@ async def handle_origin_pick(update: Update, context: ContextTypes.DEFAULT_TYPE)
     query = update.callback_query
     await query.answer()
     if query.data == "__custom__":
-        await query.edit_message_text("✏️ Digite o código IATA da <b>origem</b> (ex: GRU):", parse_mode="HTML")
+        await query.edit_message_text(
+            _STEP_HEADER
+            + "<b>Passo 1 de 5 — AEROPORTO DE ORIGEM</b>\n\n"
+            "Digite o código IATA de 3 letras do aeroporto de origem.\n\n"
+            "<i>Exemplos: GRU, CGH, VCP, CWB, FLN…</i>",
+            parse_mode="HTML",
+        )
         return TYPE_ORIGIN
-    context.user_data["origin"] = query.data.upper()
+    origin = query.data.upper()
+    context.user_data["origin"] = origin
+    name = AIRPORT_NAMES.get(origin, origin)
     await query.edit_message_text(
-        f"Origem: <b>{query.data}</b>\n\nEscolha o aeroporto de <b>destino</b>:",
-        reply_markup=_airport_keyboard(exclude=query.data),
+        _STEP_HEADER
+        + f"✅ Origem: <b>{origin}</b> ({name})\n\n"
+        "<b>Passo 2 de 5 — AEROPORTO DE DESTINO</b>\n\n"
+        "Para onde você vai?\n\n"
+        + _airport_list_text()
+        + "\n\n<i>Não encontrou? Use ✏️ Outro.</i>",
+        reply_markup=_airport_keyboard(exclude=origin),
         parse_mode="HTML",
     )
     return PICK_DEST
@@ -252,8 +333,14 @@ async def handle_origin_pick(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def handle_origin_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     origin = update.message.text.strip().upper()[:3]
     context.user_data["origin"] = origin
+    name = AIRPORT_NAMES.get(origin, "aeroporto informado")
     await update.message.reply_text(
-        f"Origem: <b>{origin}</b>\n\nEscolha o aeroporto de <b>destino</b>:",
+        _STEP_HEADER
+        + f"✅ Origem: <b>{origin}</b> ({name})\n\n"
+        "<b>Passo 2 de 5 — AEROPORTO DE DESTINO</b>\n\n"
+        "Para onde você vai?\n\n"
+        + _airport_list_text()
+        + "\n\n<i>Não encontrou? Use ✏️ Outro.</i>",
         reply_markup=_airport_keyboard(exclude=origin),
         parse_mode="HTML",
     )
@@ -264,21 +351,33 @@ async def handle_dest_pick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == "__custom__":
-        await query.edit_message_text("✏️ Digite o código IATA do <b>destino</b> (ex: BSB):", parse_mode="HTML")
+        origin = context.user_data["origin"]
+        await query.edit_message_text(
+            _STEP_HEADER
+            + f"✅ Origem: <b>{origin}</b>\n\n"
+            "<b>Passo 2 de 5 — AEROPORTO DE DESTINO</b>\n\n"
+            "Digite o código IATA de 3 letras do aeroporto de destino.\n\n"
+            "<i>Exemplos: BSB, GIG, SDU, CWB, POA…</i>",
+            parse_mode="HTML",
+        )
         return TYPE_DEST
-    context.user_data["dest"] = query.data.upper()
+    dest = query.data.upper()
+    context.user_data["dest"] = dest
     origin = context.user_data["origin"]
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("1 mês", callback_data="1"),
-         InlineKeyboardButton("2 meses", callback_data="2"),
-         InlineKeyboardButton("3 meses", callback_data="3")],
-        [InlineKeyboardButton("6 meses", callback_data="6"),
-         InlineKeyboardButton("12 meses", callback_data="12")],
-    ])
+    dest_name = AIRPORT_NAMES.get(dest, dest)
+    today_str = date.today().strftime("%d/%m/%Y")
     await query.edit_message_text(
-        f"Origem: <b>{origin}</b> → Destino: <b>{query.data}</b>\n\n"
-        f"Buscar até quantos <b>meses à frente</b>?",
-        reply_markup=keyboard,
+        _STEP_HEADER
+        + f"✅ Rota: <b>{origin} → {dest}</b> ({dest_name})\n\n"
+        "<b>Passo 3 de 5 — PERÍODO DE BUSCA</b>\n\n"
+        f"Hoje é <b>{today_str}</b>. Até quantos meses à frente devo buscar?\n\n"
+        f"  • 1 mês  → até {_months_end_date(1)}\n"
+        f"  • 2 meses → até {_months_end_date(2)}\n"
+        f"  • 3 meses → até {_months_end_date(3)}\n"
+        f"  • 6 meses → até {_months_end_date(6)}\n"
+        f"  • 12 meses → até {_months_end_date(12)}\n\n"
+        "<i>Quanto mais meses, mais datas verificadas e mais tempo a busca leva.</i>",
+        reply_markup=_months_keyboard(),
         parse_mode="HTML",
     )
     return PICK_MONTHS
@@ -288,17 +387,20 @@ async def handle_dest_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dest = update.message.text.strip().upper()[:3]
     context.user_data["dest"] = dest
     origin = context.user_data["origin"]
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("1 mês", callback_data="1"),
-         InlineKeyboardButton("2 meses", callback_data="2"),
-         InlineKeyboardButton("3 meses", callback_data="3")],
-        [InlineKeyboardButton("6 meses", callback_data="6"),
-         InlineKeyboardButton("12 meses", callback_data="12")],
-    ])
+    dest_name = AIRPORT_NAMES.get(dest, "aeroporto informado")
+    today_str = date.today().strftime("%d/%m/%Y")
     await update.message.reply_text(
-        f"Origem: <b>{origin}</b> → Destino: <b>{dest}</b>\n\n"
-        f"Buscar até quantos <b>meses à frente</b>?",
-        reply_markup=keyboard,
+        _STEP_HEADER
+        + f"✅ Rota: <b>{origin} → {dest}</b> ({dest_name})\n\n"
+        "<b>Passo 3 de 5 — PERÍODO DE BUSCA</b>\n\n"
+        f"Hoje é <b>{today_str}</b>. Até quantos meses à frente devo buscar?\n\n"
+        f"  • 1 mês  → até {_months_end_date(1)}\n"
+        f"  • 2 meses → até {_months_end_date(2)}\n"
+        f"  • 3 meses → até {_months_end_date(3)}\n"
+        f"  • 6 meses → até {_months_end_date(6)}\n"
+        f"  • 12 meses → até {_months_end_date(12)}\n\n"
+        "<i>Quanto mais meses, mais datas verificadas e mais tempo a busca leva.</i>",
+        reply_markup=_months_keyboard(),
         parse_mode="HTML",
     )
     return PICK_MONTHS
@@ -307,16 +409,25 @@ async def handle_dest_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_months(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["months"] = int(query.data)
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(d, callback_data=d) for d in ["Seg", "Ter", "Qua", "Qui"]],
-        [InlineKeyboardButton(d, callback_data=d) for d in ["Sex", "Sáb", "Dom"]],
-        [InlineKeyboardButton("📅 Qualquer dia", callback_data="Qualquer")],
-    ])
+    months = int(query.data)
+    context.user_data["months"] = months
+    origin = context.user_data["origin"]
+    dest   = context.user_data["dest"]
     await query.edit_message_text(
-        f"Período: <b>{query.data} meses</b>\n\nFiltrar por <b>dia da semana</b>?",
-        reply_markup=keyboard,
+        _STEP_HEADER
+        + f"✅ Rota: <b>{origin} → {dest}</b>  |  Período: <b>{months} meses</b>\n\n"
+        "<b>Passo 4 de 5 — DIA DA SEMANA</b>\n\n"
+        "Quer filtrar por um dia específico da semana?\n\n"
+        "  <b>1</b> = Segunda-feira\n"
+        "  <b>2</b> = Terça-feira\n"
+        "  <b>3</b> = Quarta-feira\n"
+        "  <b>4</b> = Quinta-feira\n"
+        "  <b>5</b> = Sexta-feira\n"
+        "  <b>6</b> = Sábado\n"
+        "  <b>7</b> = Domingo\n"
+        "  <b>0</b> = Qualquer dia (busca todos os dias)\n\n"
+        "<i>Dica: se você quer viajar toda quarta, escolha 3.</i>",
+        reply_markup=_weekday_keyboard(),
         parse_mode="HTML",
     )
     return PICK_WEEKDAY
@@ -325,19 +436,24 @@ async def handle_months(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_weekday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    context.user_data["weekday_label"] = query.data
-    context.user_data["weekday"] = WEEKDAYS[query.data]
-
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(TIME_PERIODS["manha"][0],    callback_data="manha"),
-         InlineKeyboardButton(TIME_PERIODS["tarde"][0],    callback_data="tarde")],
-        [InlineKeyboardButton(TIME_PERIODS["noite"][0],    callback_data="noite"),
-         InlineKeyboardButton(TIME_PERIODS["qualquer"][0], callback_data="qualquer")],
-    ])
+    weekday_num = int(query.data)          # 0 = qualquer, 1–7 = Seg–Dom
+    context.user_data["weekday_num"] = weekday_num
+    origin = context.user_data["origin"]
+    dest   = context.user_data["dest"]
+    months = context.user_data["months"]
+    day_label = WEEKDAY_LABEL[weekday_num]
     await query.edit_message_text(
-        f"Dia: <b>{query.data}</b>\n\nQual <b>período do dia</b>?\n"
-        f"<i>(Noite = após 19h, após o trabalho)</i>",
-        reply_markup=keyboard,
+        _STEP_HEADER
+        + f"✅ Rota: <b>{origin} → {dest}</b>  |  {months} meses  |  <b>{day_label}</b>\n\n"
+        "<b>Passo 5 de 5 — PERÍODO DO DIA</b>\n\n"
+        "Em qual horário você prefere voar?\n\n"
+        "  🌙 <b>Madrugada</b>  00h00 – 05h59\n"
+        "  🌅 <b>Manhã</b>      06h00 – 11h59\n"
+        "  🌆 <b>Tarde</b>      12h00 – 18h59\n"
+        "  🌃 <b>Noite</b>      19h00 – 23h59\n"
+        "  ⏰ <b>Qualquer</b>   sem filtro de horário\n\n"
+        "<i>Dica: Noite (19h+) é ideal para quem trabalha o dia todo.</i>",
+        reply_markup=_time_keyboard(),
         parse_mode="HTML",
     )
     return PICK_TIME
@@ -350,20 +466,31 @@ async def handle_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ud = context.user_data
     ud["time_key"] = query.data
 
-    origin   = ud["origin"]
-    dest     = ud["dest"]
-    months   = ud["months"]
-    weekday  = ud["weekday"]
-    weekday_label = ud["weekday_label"]
-    time_key = ud["time_key"]
-    period_label = TIME_PERIODS[time_key][0]
+    origin      = ud["origin"]
+    dest        = ud["dest"]
+    months      = ud["months"]
+    weekday_num = ud["weekday_num"]
+    time_key    = ud["time_key"]
+    day_label   = WEEKDAY_LABEL[weekday_num]
+    period_label, min_t, max_t = TIME_PERIODS[time_key]
+    horario_desc = f"{min_t}–{max_t}" if min_t and max_t else ("19h+" if min_t else "sem filtro")
 
-    summary = (
-        f"✈️ <b>{origin}→{dest}</b> | {months} meses | "
-        f"{weekday_label} | {period_label}\n\n"
-        f"🔍 Iniciando busca..."
+    # Converte 1–7 (usuário) para 0–6 (Python weekday)
+    py_weekday = (weekday_num - 1) if weekday_num >= 1 else None
+
+    n_dates = len(_get_search_dates(months, py_weekday))
+
+    await query.edit_message_text(
+        _STEP_HEADER
+        + "✅ <b>Resumo da busca</b>\n\n"
+        f"  ✈️  Rota:    <b>{origin} → {dest}</b>\n"
+        f"  📅  Período: <b>{months} meses</b> (até {_months_end_date(months)})\n"
+        f"  📆  Dias:    <b>{day_label}</b>\n"
+        f"  🕐  Horário: <b>{period_label.split()[1]}</b> ({horario_desc})\n"
+        f"  🔢  Datas a verificar: <b>{n_dates}</b>\n\n"
+        "🔍 Iniciando busca... você receberá os resultados em breve.",
+        parse_mode="HTML",
     )
-    msg = await query.edit_message_text(summary, parse_mode="HTML")
 
     chat_id = query.message.chat_id
     bot = context.bot
@@ -375,26 +502,20 @@ async def handle_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     def run():
-        return _run_custom_search_sync(origin, dest, months, weekday, time_key, notify)
+        return _run_custom_search_sync(origin, dest, months, py_weekday, time_key, notify)
 
     loop = asyncio.get_event_loop()
     data = await loop.run_in_executor(None, run)
 
     result_text = _format_results(origin, dest, data["results"], time_key)
-
-    # Telegram tem limite de 4096 chars; divide se necessário
-    if len(result_text) <= 4096:
-        await bot.send_message(chat_id=chat_id, text=result_text, parse_mode="HTML")
-    else:
-        chunks = [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]
-        for chunk in chunks:
-            await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
+    for chunk in [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]:
+        await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
 
     return ConversationHandler.END
 
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Busca cancelada.")
+    await update.message.reply_text("❌ Busca cancelada. Digite /run para começar de novo.")
     return ConversationHandler.END
 
 

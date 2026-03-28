@@ -15,15 +15,15 @@ on:
         required: false
         default: ''
       months:
-        description: 'Meses à frente (1/2/3/6/12)'
+        description: 'Meses à frente: 1, 2, 3, 6 ou 12'
         required: false
         default: '3'
       weekday:
-        description: 'Dia da semana: 0=Seg 1=Ter 2=Qua 3=Qui 4=Sex 5=Sáb 6=Dom -1=Qualquer'
+        description: 'Dia: 1=Segunda 2=Terça 3=Quarta 4=Quinta 5=Sexta 6=Sábado 7=Domingo 0=Qualquer'
         required: false
-        default: '-1'
+        default: '0'
       time_period:
-        description: 'Período: manha / tarde / noite / qualquer'
+        description: 'Horário: madrugada (00-06) / manha (06-12) / tarde (12-19) / noite (19-24) / qualquer'
         required: false
         default: 'qualquer'
 
