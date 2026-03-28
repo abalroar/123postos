@@ -16,7 +16,7 @@ fetch_points: true
 
 # Scraper settings
 scraper:
-  headless: true
+  headless: false  # true bloqueia no LATAM (detecta automação), false funciona
   timeout_ms: 45000
   delay_between_searches: 3.0  # seconds between page loads (anti-bot)
 
