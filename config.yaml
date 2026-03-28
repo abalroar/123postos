@@ -1,5 +1,5 @@
 # Data source: "scraper" (Playwright, default), "amadeus", or "auto" (scraper + fallback)
-data_source: auto
+data_source: google
 
 # Which months to search for flights.
 # start_months_ahead: começar a buscar daqui a N meses (3 = daqui a 3 meses)
@@ -12,7 +12,7 @@ date_range:
   end_months_ahead: 5
 
 # Fetch LATAM Pass points prices in addition to R$ (requires extra page load per search)
-fetch_points: true
+fetch_points: false  # Google Flights não exibe pontos LATAM Pass
 
 # Scraper settings
 scraper:
