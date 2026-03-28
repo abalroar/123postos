@@ -1,4 +1,4 @@
-# 123postos — Guia rápido (didático)
+# biuro — Guia rápido (didático)
 
 Este projeto monitora preços de voos LATAM e envia alertas no Telegram.
 
@@ -15,7 +15,7 @@ Este projeto monitora preços de voos LATAM e envia alertas no Telegram.
 ### Mac/Linux
 
 ```bash
-cd /Users/matheusjprates/123postos
+cd /Users/matheusjprates/biuro
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
@@ -25,7 +25,7 @@ pip install -r requirements.txt
 ### Windows (PowerShell)
 
 ```powershell
-cd C:\caminho\para\123postos
+cd C:\caminho\para\biuro
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
