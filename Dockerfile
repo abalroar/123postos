@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements-bot.txt
 # Código
 COPY bot.py config.yaml ./
 COPY docs/ docs/
-COPY src/telegram_notifier.py src/
+COPY src/__init__.py src/telegram_notifier.py src/
 
 RUN mkdir -p logs data
 

@@ -533,6 +533,25 @@ def _scheduled_run():
 
 
 # ---------------------------------------------------------------------------
+# Error handler global
+# ---------------------------------------------------------------------------
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.error("Exceção no handler:", exc_info=context.error)
+    if not isinstance(update, Update):
+        return
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    if chat_id is None:
+        return
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="❌ Ocorreu um erro interno. Tente novamente com /run ou /start.",
+        )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Comandos simples
 # ---------------------------------------------------------------------------
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -674,6 +693,7 @@ def main():
     app.add_handler(CommandHandler("ajuda", cmd_ajuda))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("last", cmd_last))
+    app.add_error_handler(error_handler)
     logger.info("Bot ativo. Aguardando comandos...")
     try:
         app.run_polling(drop_pending_updates=True)
