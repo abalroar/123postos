@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LATAM Monitor Bot — launchd service (macOS)
+
+  Instalação:
+    1. Edite SUBSTITUIR_PELO_CAMINHO_DO_PROJETO abaixo com o caminho real
+       Exemplo: /Users/matheusjprates/biuro
+    2. cp launchd/com.user.latam-monitor.plist ~/Library/LaunchAgents/
+    3. launchctl load ~/Library/LaunchAgents/com.user.latam-monitor.plist
+
+  Verificação:
+    launchctl list | grep latam
+    tail -f /Users/matheusjprates/biuro/logs/bot.log
+
+  Para parar:
+    launchctl unload ~/Library/LaunchAgents/com.user.latam-monitor.plist
+
+  Para reiniciar:
+    launchctl unload ~/Library/LaunchAgents/com.user.latam-monitor.plist
+    launchctl load   ~/Library/LaunchAgents/com.user.latam-monitor.plist
+-->
+<plist version="1.0">
+<dict>
+  <!-- Identificador único do serviço -->
+  <key>Label</key>
+  <string>com.user.latam-monitor</string>
+
+  <!-- Comando a executar: python do venv + bot.py -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>SUBSTITUIR_PELO_CAMINHO_DO_PROJETO/.venv/bin/python</string>
+    <string>SUBSTITUIR_PELO_CAMINHO_DO_PROJETO/bot.py</string>
+  </array>
+
+  <!-- Diretório de trabalho -->
+  <key>WorkingDirectory</key>
+  <string>SUBSTITUIR_PELO_CAMINHO_DO_PROJETO</string>
+
+  <!-- Iniciar automaticamente ao fazer login -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Reiniciar automaticamente se o processo morrer -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Logs (stdout e stderr vão para o mesmo arquivo do bot) -->
+  <key>StandardOutPath</key>
+  <string>SUBSTITUIR_PELO_CAMINHO_DO_PROJETO/logs/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>SUBSTITUIR_PELO_CAMINHO_DO_PROJETO/logs/launchd.log</string>
+
+  <!-- Throttle: espera 30s antes de reiniciar após crash -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+</dict>
+</plist>

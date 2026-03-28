@@ -1,9 +1,11 @@
 """
-Unified flight search — dispatches to scraper (primary) or Amadeus (fallback).
+Unified flight search — dispatches to google (primary), scraper, or amadeus.
 
-The scraper is the default data source. Amadeus is used as a fallback when:
-  1. Scraper returns no results and Amadeus credentials are configured, OR
-  2. data_source is explicitly set to "amadeus" in config.yaml
+data_source values (config.yaml):
+  google  — fast-flights via Google Flights (sem browser, recomendado)
+  scraper — Playwright scraping do site LATAM (lento, sujeito a bloqueio)
+  amadeus — Amadeus API (descontinuado)
+  auto    — scraper com fallback Amadeus
 """
 
 import asyncio
@@ -24,6 +26,8 @@ def search_flights(
     fare_family_filter: Optional[str] = None,
     min_dep_time: Optional[str] = None,
     airline: str = "LA",
+    headless: bool = False,
+    timeout_ms: int = 45000,
 ) -> list[dict]:
     """
     Search flights using the configured data source.
@@ -37,8 +41,14 @@ def search_flights(
     """
     flights: list[dict] = []
 
+    if data_source == "google":
+        # Google Flights via fast-flights: sem browser, rápido, confiável
+        # min_dep_time é aplicado dentro do cliente Google (evita round-trips desnecessários)
+        flights = _search_google(origin, dest, date_str, min_dep_time)
+        return flights  # filtros de tempo já aplicados; fare_family não disponível via Google
+
     if data_source in ("scraper", "auto"):
-        flights = _search_scraper(origin, dest, date_str, fetch_points)
+        flights = _search_scraper(origin, dest, date_str, fetch_points, headless, timeout_ms)
 
     if not flights and data_source in ("amadeus", "auto"):
         flights = _search_amadeus(origin, dest, date_str, airline)
@@ -48,13 +58,20 @@ def search_flights(
             logger.info("Scraper returned 0 results; trying Amadeus fallback.")
             flights = _search_amadeus(origin, dest, date_str, airline)
 
-    # Apply filters
+    # Apply filters (scraper/amadeus path)
     if fare_family_filter and fare_family_filter.upper() == "FULL":
         flights = _filter_full(flights)
     if min_dep_time:
         flights = _filter_after(flights, min_dep_time)
 
     return flights
+
+
+def _search_google(
+    origin: str, dest: str, date_str: str, min_dep_time: Optional[str] = None
+) -> list[dict]:
+    from src.google_flights_client import search_google_flights
+    return search_google_flights(origin, dest, date_str, min_dep_time)
 
 
 def search_flights_batch(
@@ -88,16 +105,19 @@ def search_flights_batch(
 # ---------------------------------------------------------------------------
 
 def _search_scraper(
-    origin: str, dest: str, date_str: str, fetch_points: bool
+    origin: str, dest: str, date_str: str, fetch_points: bool,
+    headless: bool = False, timeout_ms: int = 45000,
 ) -> list[dict]:
     from src.latam_scraper import scrape_flights_sync, merge_cash_and_points
 
-    cash = scrape_flights_sync(origin, dest, date_str, mode="cash")
+    cash = scrape_flights_sync(origin, dest, date_str, mode="cash",
+                               headless=headless, timeout_ms=timeout_ms)
     if not cash:
         return []
 
     if fetch_points:
-        pts = scrape_flights_sync(origin, dest, date_str, mode="points")
+        pts = scrape_flights_sync(origin, dest, date_str, mode="points",
+                                  headless=headless, timeout_ms=timeout_ms)
         if pts:
             cash = merge_cash_and_points(cash, pts)
 

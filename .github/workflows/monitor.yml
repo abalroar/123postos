@@ -2,14 +2,35 @@ name: LATAM Flight Monitor
 
 on:
   schedule:
-    - cron: '0 11 * * *'   # 08:00 BRT (UTC-3)
-    - cron: '0 23 * * *'   # 20:00 BRT (UTC-3)
-  workflow_dispatch:         # permite rodar manualmente pelo GitHub
+    - cron: '0 11 * * *'   # 08:00 BRT (UTC-3, Brasil não tem horário de verão desde 2019)
+    - cron: '0 23 * * *'   # 20:00 BRT
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: 'Origem IATA (ex: CGH, GRU)'
+        required: false
+        default: ''
+      dest:
+        description: 'Destino IATA (ex: BSB, GIG)'
+        required: false
+        default: ''
+      months:
+        description: 'Meses à frente: 1, 2, 3, 6 ou 12'
+        required: false
+        default: '3'
+      weekday:
+        description: 'Dia: 1=Segunda 2=Terça 3=Quarta 4=Quinta 5=Sexta 6=Sábado 7=Domingo 0=Qualquer'
+        required: false
+        default: '0'
+      time_period:
+        description: 'Horário: madrugada (00-06) / manha (06-12) / tarde (12-19) / noite (19-24) / qualquer'
+        required: false
+        default: 'qualquer'
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -24,13 +45,24 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: python -m playwright install chromium --with-deps
-
-      - name: Run monitor
+      - name: Run monitor (agendado ou manual sem parâmetros)
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.origin == '') }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          AMADEUS_CLIENT_ID: ${{ secrets.AMADEUS_CLIENT_ID }}
-          AMADEUS_CLIENT_SECRET: ${{ secrets.AMADEUS_CLIENT_SECRET }}
+          ALLOWED_CHAT_IDS: ${{ secrets.ALLOWED_CHAT_IDS }}
+          DATA_SOURCE: google
         run: python main.py
+
+      - name: Busca customizada (manual com parâmetros)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.origin != '' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALLOWED_CHAT_IDS: ${{ secrets.ALLOWED_CHAT_IDS }}
+          SEARCH_ORIGIN: ${{ inputs.origin }}
+          SEARCH_DEST: ${{ inputs.dest }}
+          SEARCH_MONTHS: ${{ inputs.months }}
+          SEARCH_WEEKDAY: ${{ inputs.weekday }}
+          SEARCH_TIME_PERIOD: ${{ inputs.time_period }}
+        run: python run_search.py
