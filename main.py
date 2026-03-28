@@ -105,6 +105,9 @@ def check_weekday_routes(config: dict, history: list[dict], db_path: str) -> lis
     data_source = config.get("data_source", "scraper")
     fetch_points = config.get("fetch_points", True)
     pts_cost = config.get("points", {}).get("cost_per_thousand", 0)
+    scraper_cfg = config.get("scraper", {})
+    headless = scraper_cfg.get("headless", False)
+    timeout_ms = scraper_cfg.get("timeout_ms", 45000)
 
     for route in weekday_routes:
         origin = route["origin"]
@@ -126,6 +129,8 @@ def check_weekday_routes(config: dict, history: list[dict], db_path: str) -> lis
                 fetch_points=fetch_points,
                 fare_family_filter=fare_family,
                 min_dep_time=min_dep_time,
+                headless=headless,
+                timeout_ms=timeout_ms,
             )
 
             if not flights:
@@ -225,6 +230,9 @@ def check_sunday_routes(config: dict, history: list[dict], db_path: str) -> list
     data_source = config.get("data_source", "scraper")
     fetch_points = config.get("fetch_points", True)
     pts_cost = config.get("points", {}).get("cost_per_thousand", 0)
+    scraper_cfg = config.get("scraper", {})
+    headless = scraper_cfg.get("headless", False)
+    timeout_ms = scraper_cfg.get("timeout_ms", 45000)
 
     for route in sunday_routes:
         origin = route["origin"]
@@ -242,6 +250,8 @@ def check_sunday_routes(config: dict, history: list[dict], db_path: str) -> list
                 origin, dest, date_str,
                 data_source=data_source,
                 fetch_points=fetch_points,
+                headless=headless,
+                timeout_ms=timeout_ms,
             )
 
             if not flights:
