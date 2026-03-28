@@ -22,6 +22,7 @@ Configuration
 
 import argparse
 import logging
+import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
@@ -68,7 +69,11 @@ from src.scheduler import start_scheduler  # noqa: E402
 
 def load_config(path: str = "config.yaml") -> dict:
     with open(_ROOT / path, encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+        cfg = yaml.safe_load(fh)
+    # Variável de ambiente sobrescreve config.yaml (útil no GitHub Actions)
+    if os.environ.get("DATA_SOURCE"):
+        cfg["data_source"] = os.environ["DATA_SOURCE"]
+    return cfg
 
 
 # ---------------------------------------------------------------------------
