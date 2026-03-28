@@ -85,7 +85,7 @@ if not ALLOWED_IDS:
 # GitHub Actions dispatch (opcional — se não configurado, busca roda localmente)
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO  = os.environ.get("GITHUB_REPO", "abalroar/biuro")
-GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "claude/flight-price-monitor-B7iNh")
+GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
 
 # ---------------------------------------------------------------------------
 # Constantes URA
@@ -465,19 +465,28 @@ async def handle_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML",
     )
 
+    loop = asyncio.get_running_loop()
+
     def notify(text: str):
         asyncio.run_coroutine_threadsafe(
             bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML"),
-            asyncio.get_event_loop(),
+            loop,
         )
 
-    loop = asyncio.get_event_loop()
-    data = await loop.run_in_executor(
-        None, lambda: _run_custom_search_sync(origin, dest, months, py_weekday, time_key, notify)
-    )
-    result_text = _format_results(origin, dest, data["results"], time_key)
-    for chunk in [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]:
-        await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
+    try:
+        data = await loop.run_in_executor(
+            None, lambda: _run_custom_search_sync(origin, dest, months, py_weekday, time_key, notify)
+        )
+        result_text = _format_results(origin, dest, data["results"], time_key)
+        for chunk in [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]:
+            await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
+    except Exception as exc:
+        logger.error("Erro na busca local: %s", exc, exc_info=True)
+        await bot.send_message(
+            chat_id=chat_id,
+            text="❌ Erro durante a busca local. Tente novamente com /run.",
+            parse_mode="HTML",
+        )
 
     return ConversationHandler.END
 
@@ -657,6 +666,7 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
         per_user=True, per_chat=True,
+        allow_reentry=True,
     )
     app.add_handler(conv)
     app.add_handler(CommandHandler("start", cmd_start))
