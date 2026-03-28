@@ -110,6 +110,14 @@ def search_google_flights(
         if "LATAM" not in (f.name or "").upper():
             continue
 
+        # Filtra apenas voos diretos (sem escala)
+        # A library converte: en "Nonstop"→0, pt-BR "Sem escalas"→"Unknown",
+        # pt-BR "1 parada"→1, pt-BR "2 paradas"→2
+        # Portanto: 0 = direto (en), "Unknown" = direto (pt-BR), int>0 = conexão
+        stops_val = f.stops
+        if isinstance(stops_val, int) and stops_val > 0:
+            continue  # tem escala, pula
+
         dep_time = _parse_time(f.departure)
         arr_time = _parse_time(f.arrival)
         price = _parse_price(f.price)
