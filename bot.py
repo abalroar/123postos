@@ -2,7 +2,9 @@
 LATAM Monitor Bot
 
 Comandos:
+  /start  — menu inicial + envio do guia "Como usar"
   /run    — busca interativa URA (5 passos) → dispara GitHub Actions
+  /ajuda  — envia o arquivo "Como usar" (Markdown)
   /status — estado do bot e uptime
   /last   — última execução agendada
   /help   — lista de comandos
@@ -37,6 +39,18 @@ from telegram.ext import (
 
 _ROOT = Path(__file__).parent
 load_dotenv(_ROOT / ".env")
+GUIDE_PATH = _ROOT / "docs" / "COMO_USAR_TELEGRAM.md"
+GUIDE_FALLBACK_TEXT = """# Como usar o bot no Telegram (URA)
+
+Comandos:
+- /start: menu inicial e envio deste guia
+- /run: busca interativa em 5 passos
+- /status: estado do bot
+- /last: última execução agendada
+- /cancel: cancela busca atual
+- /help: ajuda rápida
+- /ajuda: reenvia este guia
+"""
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -520,6 +534,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>LATAM Monitor</b>\n\n"
         f"/run — busca interativa URA → {cloud}\n"
+        "/start — menu inicial + guia\n"
+        "/ajuda — envia o guia 'Como usar'\n"
         "/status — estado do bot\n"
         "/last — última execução agendada\n"
         "/cancel — cancela busca\n"
@@ -527,6 +543,50 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏰ Automático: {' e '.join(run_times)} ({tz})",
         parse_mode="HTML",
     )
+
+
+async def _send_how_to_use_file(update: Update):
+    message = update.effective_message
+    if message is None:
+        logger.warning("Não foi possível enviar guia: update sem effective_message")
+        return
+    if not GUIDE_PATH.exists():
+        logger.warning("Guia ausente em %s; enviando fallback em texto.", GUIDE_PATH)
+        await message.reply_text(GUIDE_FALLBACK_TEXT)
+        return
+    with open(GUIDE_PATH, "rb") as guide_file:
+        await message.reply_document(
+            document=guide_file,
+            filename="Como_usar_Telegram.md",
+            caption="📘 Guia completo: <b>Como usar o bot no Telegram</b>",
+            parse_mode="HTML",
+        )
+
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update):
+        return
+    run_times, tz = _load_schedule_config()
+    cloud = "☁️ Nuvem (GitHub Actions)" if GITHUB_TOKEN else "💻 Local (Mac)"
+    await update.message.reply_text(
+        "<b>Bem-vindo ao LATAM Monitor</b>\n\n"
+        "Escolha como começar:\n"
+        "• /run — iniciar busca URA (5 passos)\n"
+        "• /ajuda — receber o guia 'Como usar'\n"
+        "• /status — ver estado atual do bot\n"
+        "• /last — ver última execução agendada\n"
+        "• /help — resumo rápido dos comandos\n\n"
+        f"Execução: {cloud}\n"
+        f"⏰ Agendado: {' e '.join(run_times)} ({tz})",
+        parse_mode="HTML",
+    )
+    await _send_how_to_use_file(update)
+
+
+async def cmd_ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update):
+        return
+    await _send_how_to_use_file(update)
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -599,7 +659,9 @@ def main():
         per_user=True, per_chat=True,
     )
     app.add_handler(conv)
-    app.add_handler(CommandHandler(["help", "start"], cmd_help))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("ajuda", cmd_ajuda))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("last", cmd_last))
     logger.info("Bot ativo. Aguardando comandos...")
