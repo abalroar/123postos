@@ -1,198 +1,166 @@
-# biuro — Monitor de Voos LATAM
+# biuro — Monitor de preços LATAM com controle por Telegram
 
-Monitora preços de voos LATAM automaticamente e envia alertas no Telegram.  
-Controlado 100% pelo Telegram, roda na nuvem (Fly.io + GitHub Actions), **sem precisar do computador ligado**.
+O **biuro** monitora preços de voos LATAM, compara com histórico e envia alertas no Telegram.
+O uso diário é feito pelo bot, com uma **URA de 5 passos** no comando `/run`.
+
+## Visão geral do funcionamento atual
+
+```text
+Telegram (usuário)
+   │
+   ├─ /run  → URA interativa (origem, destino, meses, dia, período)
+   ├─ /start → menu inicial + arquivo “Como usar”
+   ├─ /ajuda → arquivo “Como usar”
+   └─ /status, /last, /help
+   │
+   ▼
+bot.py (python-telegram-bot)
+   │
+   ├─ Se GITHUB_TOKEN existir:
+   │     dispara workflow_dispatch no GitHub Actions
+   │
+   └─ Senão:
+         executa busca local de fallback
+   │
+   ▼
+Busca de voos + análise
+   ├─ src/google_flights_client.py
+   ├─ src/flight_search.py
+   ├─ src/price_analyzer.py
+   └─ src/database.py (histórico)
+   │
+   ▼
+Notificação Telegram
+   └─ src/telegram_notifier.py
+```
+
+Além do uso manual via comandos, há execução agendada com horários definidos em `config.yaml`.
 
 ---
 
-## Como funciona
+## Comandos do bot
 
-```
-Telegram (/run)
-     │
-     ▼
-Bot no Fly.io        ← sempre online, gratuito
-     │  coleta origem, destino, datas, horário via URA (5 passos)
-     │
-     ▼
-GitHub Actions       ← busca os voos na nuvem
-     │  usa Google Flights via HTTP (sem browser)
-     │
-     ▼
-Telegram             ← resultados chegam em ~2 minutos
-```
-
-### Execuções automáticas
-Todo dia às **08:00** e **20:00 BRT**, o GitHub Actions busca automaticamente as rotas configuradas em `config.yaml` e envia o resumo no Telegram.
-
----
-
-## Comandos do Telegram
-
-| Comando | O que faz |
+| Comando | Função |
 |---|---|
-| `/run` | Inicia busca interativa (URA 5 passos) |
-| `/ajuda` | Guia completo de uso |
-| `/status` | Estado do bot e uptime |
-| `/last` | Resultado da última execução agendada |
-| `/cancel` | Cancela uma busca em andamento |
-| `/help` | Lista resumida de comandos |
-
-### Fluxo do `/run` (URA)
-
-```
-Passo 1 — Aeroporto de ORIGEM
-  [CGH] [GRU] [BSB] [SDU] [GIG] ... [✏️ Outro]
-
-Passo 2 — Aeroporto de DESTINO
-  (mesmos botões, exceto origem)
-
-Passo 3 — Período de busca
-  [1 mês] [2 meses] [3 meses] [6 meses] [12 meses]
-
-Passo 4 — Dia da semana
-  [1·Seg] [2·Ter] [3·Qua] [4·Qui]
-  [5·Sex] [6·Sáb] [7·Dom] [0·Qualquer]
-
-Passo 5 — Horário
-  [🌙 Madrugada 00-06] [🌅 Manhã 06-12]
-  [🌆 Tarde 12-19]     [🌃 Noite 19-24]
-  [⏰ Qualquer]
-
-→ Busca disparada no GitHub Actions
-→ Resultado no Telegram em ~2 minutos
-```
+| `/start` | Inicia o uso com menu e envia o guia **Como usar** em arquivo Markdown |
+| `/run` | Inicia a URA de busca (5 passos) |
+| `/ajuda` | Reenvia o guia **Como usar** |
+| `/status` | Mostra estado do bot, modo de execução e uptime |
+| `/last` | Mostra a última execução agendada registrada |
+| `/help` | Mostra resumo rápido dos comandos |
+| `/cancel` | Cancela fluxo `/run` em andamento |
 
 ---
 
-## Rotas monitoradas automaticamente
+## URA do `/run` (5 passos)
 
-Configuradas em `config.yaml`:
+1. **Origem** (IATA)
+2. **Destino** (IATA)
+3. **Janela de busca** (`1`, `2`, `3`, `6` ou `12` meses)
+4. **Dia da semana** (`1..7` ou `0` para qualquer)
+5. **Período do dia** (`madrugada`, `manhã`, `tarde`, `noite`, `qualquer`)
 
-| Rota | Dias | Horário | Tipo |
-|---|---|---|---|
-| CGH → BSB | Quarta e Sexta | após 20h | Tarifa FULL |
-| BSB → CGH | Domingo | qualquer | Último ou mais barato |
-| CGH → BSB | Domingo | qualquer | Último ou mais barato |
-
-Para alterar, edite `config.yaml` (seção `monitoring`).
+Ao final, o bot envia um resumo da busca e executa na nuvem (quando possível), retornando resultados no chat.
 
 ---
 
-## Infraestrutura
+## Arquivo “Como usar” no Telegram
 
-| Componente | Onde roda | Custo |
-|---|---|---|
-| Bot Telegram | Fly.io (São Paulo) | Gratuito |
-| Busca de voos | GitHub Actions | Gratuito |
-| Dados de voos | Google Flights (via HTTP) | Gratuito |
+O guia fica versionado em:
 
----
+- `docs/COMO_USAR_TELEGRAM.md`
 
-## Setup inicial (feito uma vez)
+Disponibilidade no bot:
 
-### Pré-requisitos
-
-- Conta no GitHub: `github.com`
-- Conta no Fly.io: `fly.io` (sem cartão de crédito)
-- Mac ou Linux com `brew` instalado
-- Bot do Telegram criado via `@BotFather`
-
-### 1. Clone o repositório
-
-```bash
-git clone https://github.com/abalroar/biuro.git
-cd biuro
-```
-
-### 2. Crie o bot no Telegram
-
-1. Abra o Telegram → procure `@BotFather`
-2. Envie `/newbot` → siga as instruções
-3. Guarde o **token** (ex: `123456:ABC...`)
-4. Envie uma mensagem para o bot, depois acesse:
-   `https://api.telegram.org/botSEU_TOKEN/getUpdates`
-5. Copie o número em `"chat":{"id": ...}` — é seu `CHAT_ID`
-
-### 3. Crie um token do GitHub
-
-1. Acesse `github.com/settings/tokens/new`
-2. Note: `LATAM Monitor Bot` | Scope: apenas `workflow`
-3. Clique **Generate token** e copie (começa com `ghp_...`)
-
-### 4. Deploy no Fly.io
-
-```bash
-# Instala flyctl
-brew install flyctl
-
-# Login (abre browser)
-flyctl auth signup
-
-# Deploy
-flyctl launch --no-deploy --name latam-monitor-bot --region gru
-flyctl secrets set \
-  TELEGRAM_BOT_TOKEN=SEU_TOKEN \
-  TELEGRAM_CHAT_ID=SEU_CHAT_ID \
-  ALLOWED_CHAT_IDS=SEU_CHAT_ID \
-  GITHUB_TOKEN=SEU_GITHUB_TOKEN \
-  GITHUB_REPO=abalroar/biuro \
-  GITHUB_BRANCH=claude/flight-price-monitor-B7iNh
-flyctl deploy
-```
-
-### 5. Verifique
-
-```bash
-flyctl status       # deve mostrar "running"
-flyctl logs         # logs em tempo real
-```
-
-Abra o Telegram e envie `/help` para o bot.
+- enviado automaticamente no `/start`
+- disponível sob demanda via `/ajuda`
 
 ---
 
-## Estrutura do projeto
+## Execução agendada
 
-```
+O bot agenda execuções automáticas usando `APScheduler` com horários em `config.yaml`:
+
+- `schedule.run_times`
+- `schedule.timezone`
+
+O resultado da última execução fica disponível em `/last` durante a sessão atual do processo.
+
+---
+
+## Estrutura de arquivos (resumo)
+
+```text
 biuro/
-├── bot.py                  # Bot Telegram + dispatcher GitHub Actions
-├── main.py                 # Monitor principal (roda no GitHub Actions)
-├── run_search.py           # Busca customizada (roda no GitHub Actions)
-├── config.yaml             # Rotas, horários, alertas
-├── Dockerfile              # Imagem do bot para Fly.io
-├── fly.toml                # Config do Fly.io
-├── requirements-bot.txt    # Deps do bot (leve, sem Playwright)
-├── requirements.txt        # Deps completas (para GitHub Actions)
-├── src/
-│   ├── google_flights_client.py  # Busca no Google Flights
-│   ├── flight_search.py          # Roteador de fontes de dados
-│   ├── telegram_notifier.py      # Envio de mensagens
-│   ├── price_analyzer.py         # Comparação com histórico
-│   └── database.py               # SQLite com histórico de preços
-└── .github/workflows/
-    └── monitor.yml         # GitHub Actions (busca agendada + manual)
+├── bot.py                     # Bot Telegram + URA + agendamento
+├── main.py                    # Execução principal do monitor
+├── run_search.py              # Busca customizada para workflow_dispatch
+├── config.yaml                # Configuração de rotas e horários
+├── requirements.txt           # Dependências gerais
+├── requirements-bot.txt       # Dependências do bot
+├── docs/
+│   └── COMO_USAR_TELEGRAM.md  # Guia enviado no /start e /ajuda
+└── src/
+    ├── google_flights_client.py
+    ├── flight_search.py
+    ├── price_analyzer.py
+    ├── database.py
+    └── telegram_notifier.py
 ```
 
 ---
 
-## Ajustes comuns
+## Configuração rápida
 
-### Mudar rotas monitoradas
-
-Edite `config.yaml`, seção `monitoring.weekday_routes` e `monitoring.sunday_routes`.
-
-### Mudar horários automáticos
-
-Edite `config.yaml`, seção `schedule.run_times`.  
-E também `.github/workflows/monitor.yml`, seção `cron`.
-
-### Adicionar aeroportos no /run
-
-Edite `bot.py`, lista `AIRPORTS` e dicionário `AIRPORT_NAMES`.
-
-### Ver logs do bot
+### 1) Ambiente
 
 ```bash
-flyctl logs
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
+
+Para rodar apenas o bot, também pode usar:
+
+```bash
+pip install -r requirements-bot.txt
+```
+
+### 2) Variáveis `.env`
+
+Defina no mínimo:
+
+- `TELEGRAM_BOT_TOKEN`
+- `ALLOWED_CHAT_IDS` (ou `TELEGRAM_CHAT_ID`)
+
+Opcional (para execução na nuvem via dispatch):
+
+- `GITHUB_TOKEN`
+- `GITHUB_REPO`
+- `GITHUB_BRANCH`
+
+### 3) Rodar bot
+
+```bash
+python bot.py
+```
+
+No Telegram, envie `/start`.
+
+---
+
+## Operação e manutenção
+
+- Logs locais do bot: pasta `logs/` (arquivo `bot.log`).
+- Deploy cloud: `fly.toml` + `Dockerfile`.
+- Workflow de execução em nuvem: `.github/workflows/monitor.yml`.
+
+---
+
+## Observações importantes
+
+- O bot valida `chat_id` antes de executar comandos.
+- Se o dispatch no GitHub Actions falhar, o fluxo `/run` tenta fallback local.
+- O guia de uso Telegram é entregue como arquivo para facilitar consulta no próprio chat.
+
