@@ -1,6 +1,7 @@
 name: Deploy Bot (Fly.io)
 
 on:
+  workflow_dispatch:   # permite disparar manualmente pelo GitHub
   push:
     branches: [claude/flight-price-monitor-B7iNh]
     paths:
