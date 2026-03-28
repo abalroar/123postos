@@ -30,13 +30,20 @@ def _parse_time(time_str: str) -> Optional[str]:
 
 
 def _parse_price(price_str: str) -> Optional[float]:
-    """Extrai número de strings como 'R$450', 'BRL 1234', '450'."""
+    """Extrai número de strings no formato brasileiro: 'R$1.150', 'R$321', 'R$1.150,50'."""
     if not price_str or price_str.strip() in ("0", "", "—"):
         return None
-    # Remove letras de moeda e espaços, mantém dígitos e ponto decimal
-    cleaned = re.sub(r"[^\d.]", "", price_str.replace(",", ""))
+    # Remove símbolo de moeda e espaços não-quebráveis
+    s = price_str.replace("R$", "").replace("\xa0", "").replace(" ", "").strip()
+    # Formato BR: ponto = separador de milhar, vírgula = decimal
+    # Remove pontos que são separadores de milhar (seguidos de 3 dígitos)
+    s = re.sub(r'\.(?=\d{3}(\D|$))', '', s)
+    # Converte vírgula decimal em ponto
+    s = s.replace(',', '.')
+    # Remove qualquer caractere não numérico restante (exceto ponto decimal)
+    s = re.sub(r'[^\d.]', '', s)
     try:
-        val = float(cleaned)
+        val = float(s)
         return val if val > 0 else None
     except ValueError:
         return None
