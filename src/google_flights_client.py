@@ -69,7 +69,7 @@ def search_google_flights(
     """
     try:
         from fast_flights import FlightData, Passengers
-        from fast_flights.core import get_flights_from_filter
+        from fast_flights.core import fetch, parse_response
         from fast_flights.filter import TFSData
     except ImportError:
         logger.error("fast-flights não instalado. Execute: pip install fast-flights")
@@ -85,7 +85,14 @@ def search_google_flights(
             seat="economy",
             max_stops=None,
         )
-        result = get_flights_from_filter(filter_data, currency="BRL")
+        params = {
+            "tfs": filter_data.as_b64().decode("utf-8"),
+            "hl": "pt-BR",
+            "tfu": "EgQIABABIgA",
+            "curr": "BRL",
+        }
+        res = fetch(params)
+        result = parse_response(res)
     except Exception as exc:
         logger.error("Erro Google Flights %s->%s %s: %s", origin, dest, date_str, exc)
         return []
