@@ -1,5 +1,5 @@
 # Data source: "scraper" (Playwright, default), "amadeus", or "auto" (scraper + fallback)
-data_source: scraper
+data_source: auto
 
 # Which months to search for flights.
 # start_months_ahead: começar a buscar daqui a N meses (3 = daqui a 3 meses)
