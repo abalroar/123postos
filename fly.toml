@@ -1,0 +1,20 @@
+# Fly.io — LATAM Monitor Bot
+# Deploy: flyctl deploy
+# Secrets: flyctl secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... etc.
+
+app = "latam-monitor-bot"
+primary_region = "gru"  # São Paulo
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Bot usa polling (não expõe porta HTTP)
+[http_service]
+  internal_port = 8080
+  auto_stop_machines = false   # nunca dormir
+  auto_start_machines = true
+  min_machines_running = 1     # sempre 1 instância ativa
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
