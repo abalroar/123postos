@@ -96,7 +96,7 @@ def search_google_flights(
             "curr": "BRL",
         }
         res = fetch(params)
-        result = parse_response(res)
+        result = parse_response(res, dangerously_allow_looping_last_item=True)
     except Exception as exc:
         logger.error("Erro Google Flights %s->%s %s: %s", origin, dest, date_str, exc)
         return []
