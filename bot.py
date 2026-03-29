@@ -16,6 +16,7 @@ import logging
 import logging.handlers
 import os
 import threading
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -265,11 +266,14 @@ def _run_custom_search_sync(origin, dest, months, weekday, time_key, notify_fn) 
     from src.google_flights_client import search_google_flights
     dates = _get_search_dates(months, weekday)
     if not dates:
-        return {"results": {}}
+        return {"results": {}, "failed": []}
     notify_fn(f"🔍 Buscando <b>LATAM {origin}→{dest}</b>\n📅 {len(dates)} datas | ⏳ aguarde...")
     results: dict[str, list] = {}
-    for d in dates:
+    failed_dates: list[str] = []
+    for i, d in enumerate(dates):
         date_str = d.strftime("%Y-%m-%d")
+        if i > 0:
+            time.sleep(2)  # evita bloqueio por rate limit do Google
         try:
             flights = search_google_flights(origin, dest, date_str)
             flights = [f for f in flights if _in_period(f.get("departure_time", ""), time_key)]
@@ -277,13 +281,19 @@ def _run_custom_search_sync(origin, dest, months, weekday, time_key, notify_fn) 
                 results[date_str] = sorted(flights, key=lambda f: (f["price_brl"], f["departure_time"]))
         except Exception as exc:
             logger.error("Erro %s->%s %s: %s", origin, dest, date_str, exc)
-    return {"results": results}
+            failed_dates.append(date_str)
+    return {"results": results, "failed": failed_dates}
 
 
-def _format_results(origin, dest, results, time_key) -> str:
+def _format_results(origin, dest, results, time_key, failed_dates=None) -> str:
     period_label = TIME_PERIODS[time_key][0]
+    failed_dates = failed_dates or []
     if not results:
-        return f"❌ Nenhum voo LATAM encontrado\n<b>{origin}→{dest}</b> | {period_label}"
+        msg = f"❌ Nenhum voo LATAM encontrado\n<b>{origin}→{dest}</b> | {period_label}"
+        if failed_dates:
+            fmt = [datetime.strptime(ds, "%Y-%m-%d").strftime("%d/%m") for ds in failed_dates]
+            msg += f"\n<i>⚠️ Erro ao consultar: {', '.join(fmt)}</i>"
+        return msg
     lines = [f"✈️ <b>LATAM {origin}→{dest}</b> | {period_label}\n"]
     total = 0
     for date_str in sorted(results):
@@ -294,7 +304,11 @@ def _format_results(origin, dest, results, time_key) -> str:
             dur = f.get("duration",""); price = f.get("price_brl") or 0
             lines.append(f"  {dep}→{arr}{' ('+dur+')' if dur else ''} <b>R${price:.0f}</b>")
             total += 1
-    lines.append(f"\n<i>{len(results)} datas com voos · {total} opções</i>")
+    summary = f"\n<i>{len(results)} datas com voos · {total} opções</i>"
+    if failed_dates:
+        fmt = [datetime.strptime(ds, "%Y-%m-%d").strftime("%d/%m") for ds in failed_dates]
+        summary += f"\n<i>⚠️ Sem resposta em: {', '.join(fmt)} (tente novamente)</i>"
+    lines.append(summary)
     return "\n".join(lines)
 
 
@@ -479,7 +493,7 @@ async def handle_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data = await loop.run_in_executor(
             None, lambda: _run_custom_search_sync(origin, dest, months, py_weekday, time_key, notify)
         )
-        result_text = _format_results(origin, dest, data["results"], time_key)
+        result_text = _format_results(origin, dest, data["results"], time_key, data.get("failed"))
         for chunk in [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]:
             await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
     except Exception as exc:

@@ -15,6 +15,7 @@ Variáveis de ambiente:
 import logging
 import os
 import sys
+import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -93,10 +94,16 @@ def in_period(dep_time: str, time_key: str) -> bool:
     return True
 
 
-def format_results(origin: str, dest: str, results: dict, time_key: str) -> str:
+def format_results(origin: str, dest: str, results: dict, time_key: str, failed_dates: list | None = None) -> str:
     period_label = TIME_PERIODS[time_key][0]
+    failed_dates = failed_dates or []
+
     if not results:
-        return f"❌ Nenhum voo LATAM encontrado\n<b>{origin}→{dest}</b> | {period_label}"
+        msg = f"❌ Nenhum voo LATAM encontrado\n<b>{origin}→{dest}</b> | {period_label}"
+        if failed_dates:
+            fmt = [datetime.strptime(ds, "%Y-%m-%d").strftime("%d/%m") for ds in failed_dates]
+            msg += f"\n<i>⚠️ Erro ao consultar: {', '.join(fmt)}</i>"
+        return msg
 
     lines = [f"✈️ <b>LATAM {origin}→{dest}</b> | {period_label}\n"]
     total = 0
@@ -112,7 +119,11 @@ def format_results(origin: str, dest: str, results: dict, time_key: str) -> str:
             dur_str = f" ({dur})" if dur else ""
             lines.append(f"  {dep}→{arr}{dur_str} <b>R${price:.0f}</b>")
             total += 1
-    lines.append(f"\n<i>{len(results)} datas com voos · {total} opções</i>")
+    summary = f"\n<i>{len(results)} datas com voos · {total} opções</i>"
+    if failed_dates:
+        fmt = [datetime.strptime(ds, "%Y-%m-%d").strftime("%d/%m") for ds in failed_dates]
+        summary += f"\n<i>⚠️ Sem resposta em: {', '.join(fmt)} (tente novamente)</i>"
+    lines.append(summary)
     return "\n".join(lines)
 
 
@@ -139,8 +150,11 @@ def main():
     )
 
     results: dict[str, list] = {}
-    for d in dates:
+    failed_dates: list[str] = []
+    for i, d in enumerate(dates):
         date_str = d.strftime("%Y-%m-%d")
+        if i > 0:
+            time.sleep(2)  # evita bloqueio por rate limit do Google
         try:
             flights = search_google_flights(ORIGIN, DEST, date_str)
             flights = [f for f in flights if in_period(f.get("departure_time", ""), TIME_KEY)]
@@ -149,10 +163,13 @@ def main():
                     flights, key=lambda f: (f.get("price_brl") or 9999, f.get("departure_time", ""))
                 )
                 logger.info("%s: %d voo(s)", date_str, len(results[date_str]))
+            else:
+                logger.info("%s: sem voos após filtro", date_str)
         except Exception as exc:
             logger.error("Erro %s→%s %s: %s", ORIGIN, DEST, date_str, exc)
+            failed_dates.append(date_str)
 
-    result_text = format_results(ORIGIN, DEST, results, TIME_KEY)
+    result_text = format_results(ORIGIN, DEST, results, TIME_KEY, failed_dates)
 
     # Telegram: máx 4096 chars por mensagem
     for i in range(0, len(result_text), 4000):
