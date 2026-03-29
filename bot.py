@@ -158,6 +158,9 @@ def _months_end_date(months: int) -> str:
     return f"{end.day:02d}/{months_pt[end.month-1]}/{end.year}"
 
 
+_MAX_DATES = 45  # teto de datas para evitar buscas de 15-30 min
+
+
 def _get_search_dates(months_ahead: int, weekday: Optional[int]) -> list[date]:
     today = date.today()
     end   = today + relativedelta(months=months_ahead)
@@ -166,6 +169,9 @@ def _get_search_dates(months_ahead: int, weekday: Optional[int]) -> list[date]:
         if weekday is None or current.weekday() == weekday:
             dates.append(current)
         current += timedelta(days=1)
+    if len(dates) > _MAX_DATES:
+        step = len(dates) / _MAX_DATES
+        dates = [dates[int(i * step)] for i in range(_MAX_DATES)]
     return dates
 
 

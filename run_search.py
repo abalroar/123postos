@@ -70,6 +70,9 @@ if TIME_KEY not in TIME_PERIODS:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+MAX_DATES = 45  # teto de datas para evitar buscas de 15-30 min
+
+
 def get_dates(months: int, weekday) -> list[date]:
     """weekday: None = qualquer, 0–6 = Python weekday (Seg=0)."""
     today = date.today()
@@ -80,6 +83,10 @@ def get_dates(months: int, weekday) -> list[date]:
         if weekday is None or d.weekday() == weekday:
             out.append(d)
         d += timedelta(days=1)
+    if len(out) > MAX_DATES:
+        # Amostragem uniforme: espaça as datas para cobrir todo o período
+        step = len(out) / MAX_DATES
+        out = [out[int(i * step)] for i in range(MAX_DATES)]
     return out
 
 
@@ -137,16 +144,19 @@ def main():
     dates = get_dates(MONTHS, WEEKDAY)
     period_label  = TIME_PERIODS[TIME_KEY][0]
     weekday_label = WEEKDAY_LABEL.get(WEEKDAY_NUM, "Qualquer dia")
+    total_raw = len(dates)
+    sampled = total_raw == MAX_DATES and WEEKDAY is None  # só amostra quando qualquer dia
 
     logger.info(
         "Buscando LATAM %s→%s | %d datas | %s | %s",
-        ORIGIN, DEST, len(dates), weekday_label, period_label,
+        ORIGIN, DEST, total_raw, weekday_label, period_label,
     )
 
+    sample_note = f"\n<i>⚡ Amostragem: {total_raw} datas espaçadas (máx {MAX_DATES})</i>" if sampled else ""
     send_message(
         f"🔍 <b>Iniciando busca</b>\n"
         f"LATAM <b>{ORIGIN}→{DEST}</b> | {MONTHS} meses | {weekday_label} | {period_label}\n"
-        f"📅 {len(dates)} datas para verificar..."
+        f"📅 {total_raw} datas para verificar...{sample_note}"
     )
 
     results: dict[str, list] = {}
