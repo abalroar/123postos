@@ -215,7 +215,8 @@ def _time_keyboard() -> InlineKeyboardMarkup:
 # GitHub Actions dispatch
 # ---------------------------------------------------------------------------
 def _trigger_github_actions(origin: str, dest: str, months: int,
-                             weekday_num: int, time_key: str) -> bool:
+                             weekday_num: int, time_key: str,
+                             chat_id: int) -> bool:
     """Dispara workflow_dispatch no GitHub Actions. Retorna True se sucesso."""
     if not GITHUB_TOKEN:
         return False
@@ -230,6 +231,7 @@ def _trigger_github_actions(origin: str, dest: str, months: int,
                 "months":      str(months),
                 "weekday":     str(weekday_num),
                 "time_period": time_key,
+                "chat_id":     str(chat_id),
             },
         },
         headers={
@@ -432,7 +434,7 @@ async def handle_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Tenta disparar no GitHub Actions (nuvem) ──────────────────────────
     if GITHUB_TOKEN:
-        triggered = _trigger_github_actions(origin, dest, months, weekday_num, time_key)
+        triggered = _trigger_github_actions(origin, dest, months, weekday_num, time_key, chat_id)
         if triggered:
             await q.edit_message_text(
                 _STEP_HEADER

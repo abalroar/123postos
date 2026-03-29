@@ -26,6 +26,10 @@ on:
         description: 'Horario: madrugada / manha / tarde / noite / qualquer'
         required: false
         default: 'qualquer'
+      chat_id:
+        description: 'Telegram chat_id do solicitante (para enviar resultado de volta)'
+        required: false
+        default: ''
 
 jobs:
   monitor:
@@ -58,7 +62,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.origin != '' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: ${{ inputs.chat_id != '' && inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
           ALLOWED_CHAT_IDS: ${{ secrets.ALLOWED_CHAT_IDS }}
           SEARCH_ORIGIN: ${{ inputs.origin }}
           SEARCH_DEST: ${{ inputs.dest }}
