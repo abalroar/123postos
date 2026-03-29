@@ -104,7 +104,7 @@ def format_results(origin: str, dest: str, results: dict, time_key: str) -> str:
         d = datetime.strptime(date_str, "%Y-%m-%d")
         day = WEEKDAY_SHORT[d.weekday()]
         lines.append(f"📅 <b>{day} {d.strftime('%d/%m')}</b>")
-        for f in results[date_str][:5]:
+        for f in results[date_str]:
             price = f.get("price_brl") or 0
             dep = f.get("departure_time", "??:??")
             arr = f.get("arrival_time", "??:??")

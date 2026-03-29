@@ -102,6 +102,8 @@ def search_google_flights(
         return []
 
     flights = []
+    seen: set[tuple] = set()
+
     for f in result.flights:
         # Filtra apenas voos LATAM
         if "LATAM" not in (f.name or "").upper():
@@ -127,6 +129,13 @@ def search_google_flights(
         if min_dep_time and not _after_min_time(dep_time, min_dep_time):
             continue
 
+        # Deduplica por (partida, chegada, preço) — a API retorna o mesmo voo
+        # múltiplas vezes em resultados diferentes (melhor preço, mais rápido, etc.)
+        key = (dep_time, arr_time, price)
+        if key in seen:
+            continue
+        seen.add(key)
+
         flights.append({
             "departure_time": dep_time,
             "arrival_time": arr_time,
@@ -142,7 +151,7 @@ def search_google_flights(
         })
 
     logger.info(
-        "Google Flights %s->%s %s: %d voo(s) LATAM diretos",
+        "Google Flights %s->%s %s: %d voo(s) LATAM diretos (únicos)",
         origin, dest, date_str, len(flights),
     )
     return flights

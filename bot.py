@@ -289,7 +289,7 @@ def _format_results(origin, dest, results, time_key) -> str:
     for date_str in sorted(results):
         d = datetime.strptime(date_str, "%Y-%m-%d")
         lines.append(f"📅 <b>{WEEKDAY_SHORT[d.weekday()]} {d.strftime('%d/%m')}</b>")
-        for f in results[date_str][:5]:
+        for f in results[date_str]:
             dep = f.get("departure_time","??:??"); arr = f.get("arrival_time","??:??")
             dur = f.get("duration",""); price = f.get("price_brl") or 0
             lines.append(f"  {dep}→{arr}{' ('+dur+')' if dur else ''} <b>R${price:.0f}</b>")
