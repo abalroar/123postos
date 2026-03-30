@@ -2,11 +2,12 @@
 LATAM Monitor Bot
 
 Comandos:
-  /start  — menu inicial + envio do guia "Como usar"
+  /start  — menu inicial + texto de ajuda no chat
   /run    — busca interativa URA (7 passos) → dispara GitHub Actions
-  /ajuda  — envia o arquivo "Como usar" (Markdown)
+  /ajuda  — reenvia o texto "Como usar"
   /status — estado do bot e uptime
   /last   — última execução agendada
+  /novidades — dispara comunicado para usuários autorizados
   /help   — lista de comandos
   /cancel — cancela busca em andamento
 """
@@ -40,18 +41,28 @@ from telegram.ext import (
 
 _ROOT = Path(__file__).parent
 load_dotenv(_ROOT / ".env")
-GUIDE_PATH = _ROOT / "docs" / "COMO_USAR_TELEGRAM.md"
-GUIDE_FALLBACK_TEXT = """# Como usar o bot no Telegram (URA)
 
-Comandos:
-- /start: menu inicial e envio deste guia
-- /run: busca interativa em 7 passos
-- /status: estado do bot
-- /last: última execução agendada
-- /cancel: cancela busca atual
-- /help: ajuda rápida
-- /ajuda: reenvia este guia
-"""
+HOW_TO_USE_TEXT = (
+    "📘 <b>Como usar o bot</b>\n\n"
+    "1) Digite <b>/run</b> para iniciar a busca guiada (7 passos).\n"
+    "2) Escolha origem, destino, meses, dia da semana, companhia, escalas e horário.\n"
+    "3) O bot executa a busca e envia os melhores resultados aqui no chat.\n\n"
+    "<b>Comandos úteis</b>\n"
+    "• /run — nova busca personalizada\n"
+    "• /status — estado do bot\n"
+    "• /last — última execução agendada\n"
+    "• /cancel — cancelar busca em andamento\n"
+    "• /help — resumo de comandos\n"
+)
+
+NEWS_BROADCAST_TEXT = (
+    "📢 <b>Novidade no Flight Monitor</b>\n\n"
+    "Agora a busca personalizada suporta:\n"
+    "• ✈️ Múltiplas companhias (LATAM, GOL, Azul ou todas)\n"
+    "• 🔄 Filtro de escalas (só direto ou até 1 escala)\n"
+    "• 📊 Resultado agrupado por companhia quando escolher “Todas”\n\n"
+    "Para testar agora, use <b>/run</b>."
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -361,6 +372,7 @@ async def cmd_run_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update):
         return ConversationHandler.END
     context.user_data.clear()
+    await update.message.reply_text(HOW_TO_USE_TEXT, parse_mode="HTML")
     await update.message.reply_text(
         _STEP_HEADER
         + "<b>Passo 1 de 5 — AEROPORTO DE ORIGEM</b>\n\n"
@@ -661,10 +673,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>LATAM Monitor</b>\n\n"
         f"/run — busca interativa URA → {cloud}\n"
-        "/start — menu inicial + guia\n"
-        "/ajuda — envia o guia 'Como usar'\n"
+        "/start — menu inicial + ajuda\n"
+        "/ajuda — reenvia o texto 'Como usar'\n"
         "/status — estado do bot\n"
         "/last — última execução agendada\n"
+        "/novidades — dispara comunicado para usuários\n"
         "/cancel — cancela busca\n"
         "/help — esta mensagem\n\n"
         f"⏰ Automático: {' e '.join(run_times)} ({tz})",
@@ -672,22 +685,23 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def _send_how_to_use_file(update: Update):
+async def _send_how_to_use_text(update: Update):
     message = update.effective_message
     if message is None:
-        logger.warning("Não foi possível enviar guia: update sem effective_message")
+        logger.warning("Não foi possível enviar ajuda: update sem effective_message")
         return
-    if not GUIDE_PATH.exists():
-        logger.warning("Guia ausente em %s; enviando fallback em texto.", GUIDE_PATH)
-        await message.reply_text(GUIDE_FALLBACK_TEXT)
-        return
-    with open(GUIDE_PATH, "rb") as guide_file:
-        await message.reply_document(
-            document=guide_file,
-            filename="Como_usar_Telegram.md",
-            caption="📘 Guia completo: <b>Como usar o bot no Telegram</b>",
-            parse_mode="HTML",
-        )
+    await message.reply_text(HOW_TO_USE_TEXT, parse_mode="HTML")
+
+
+async def _broadcast_news(context: ContextTypes.DEFAULT_TYPE):
+    sent = 0
+    for chat_id in ALLOWED_IDS:
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=NEWS_BROADCAST_TEXT, parse_mode="HTML")
+            sent += 1
+        except Exception as exc:
+            logger.error("Falha ao enviar novidades para %s: %s", chat_id, exc)
+    logger.info("Broadcast de novidades concluído: %d/%d chats", sent, len(ALLOWED_IDS))
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -702,18 +716,27 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• /ajuda — receber o guia 'Como usar'\n"
         "• /status — ver estado atual do bot\n"
         "• /last — ver última execução agendada\n"
+        "• /novidades — enviar comunicado de novidades\n"
         "• /help — resumo rápido dos comandos\n\n"
         f"Execução: {cloud}\n"
         f"⏰ Agendado: {' e '.join(run_times)} ({tz})",
         parse_mode="HTML",
     )
-    await _send_how_to_use_file(update)
+    await _send_how_to_use_text(update)
 
 
 async def cmd_ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update):
         return
-    await _send_how_to_use_file(update)
+    await _send_how_to_use_text(update)
+
+
+async def cmd_novidades(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update):
+        return
+    await update.message.reply_text("📣 Enviando novidades para usuários autorizados...", parse_mode="HTML")
+    await _broadcast_news(context)
+    await update.message.reply_text("✅ Novidades enviadas.", parse_mode="HTML")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -792,6 +815,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("ajuda", cmd_ajuda))
+    app.add_handler(CommandHandler("novidades", cmd_novidades))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("last", cmd_last))
     app.add_error_handler(error_handler)
