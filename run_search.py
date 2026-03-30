@@ -48,6 +48,9 @@ _WEEKDAY_INPUT = int(os.environ.get("SEARCH_WEEKDAY", "0"))
 WEEKDAY_NUM  = _WEEKDAY_INPUT                        # 0–7 para exibição
 WEEKDAY      = (_WEEKDAY_INPUT - 1) if _WEEKDAY_INPUT >= 1 else None  # Python
 TIME_KEY     = os.environ.get("SEARCH_TIME_PERIOD", "qualquer").lower().strip()
+_AIRLINES_INPUT = os.environ.get("SEARCH_AIRLINES", "LA").strip().upper()
+AIRLINES_LIST = None if _AIRLINES_INPUT == "ALL" else [a.strip() for a in _AIRLINES_INPUT.split(",")]
+MAX_STOPS = int(os.environ.get("SEARCH_MAX_STOPS", "0"))
 
 WEEKDAY_SHORT = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 WEEKDAY_LABEL = {
@@ -101,35 +104,62 @@ def in_period(dep_time: str, time_key: str) -> bool:
     return True
 
 
-def format_results(origin: str, dest: str, results: dict, time_key: str, failed_dates: list | None = None) -> str:
+def format_results(
+    origin: str,
+    dest: str,
+    results: dict,
+    time_key: str,
+    failed_dates: list | None = None,
+    airline_key: str = "LA",
+) -> str:
     period_label = TIME_PERIODS[time_key][0]
     failed_dates = failed_dates or []
+    multi_cia = (airline_key == "ALL" or airline_key is None)
 
     if not results:
-        msg = f"❌ Nenhum voo LATAM encontrado\n<b>{origin}→{dest}</b> | {period_label}"
+        msg = f"❌ Nenhum voo encontrado\n<b>{origin}→{dest}</b> | {period_label}"
         if failed_dates:
             fmt = [datetime.strptime(ds, "%Y-%m-%d").strftime("%d/%m") for ds in failed_dates]
             msg += f"\n<i>⚠️ Erro ao consultar: {', '.join(fmt)}</i>"
         return msg
 
-    lines = [f"✈️ <b>LATAM {origin}→{dest}</b> | {period_label}\n"]
+    lines = [f"✈️ <b>{origin}→{dest}</b> | {period_label}\n"]
     total = 0
     for date_str in sorted(results):
         d = datetime.strptime(date_str, "%Y-%m-%d")
         day = WEEKDAY_SHORT[d.weekday()]
         lines.append(f"📅 <b>{day} {d.strftime('%d/%m')}</b>")
-        for f in results[date_str]:
-            price = f.get("price_brl") or 0
-            dep = f.get("departure_time", "??:??")
-            arr = f.get("arrival_time", "??:??")
-            dur = f.get("duration", "")
-            dur_str = f" ({dur})" if dur else ""
-            lines.append(f"  {dep}→{arr}{dur_str} <b>R${price:.0f}</b>")
-            total += 1
+        day_flights = results[date_str]
+        if multi_cia:
+            by_cia = {}
+            for f in day_flights:
+                cia = f.get("airline_name", "?")
+                by_cia.setdefault(cia, []).append(f)
+            for cia_name, cia_flights in sorted(by_cia.items()):
+                lines.append(f"  <b>{cia_name}</b>")
+                for f in cia_flights:
+                    price = f.get("price_brl") or 0
+                    dep = f.get("departure_time", "??:??")
+                    arr = f.get("arrival_time", "??:??")
+                    dur = f.get("duration", "")
+                    dur_str = f" ({dur})" if dur else ""
+                    stops_icon = " 🔄" if f.get("stops", 0) > 0 else ""
+                    lines.append(f"    {dep}→{arr}{dur_str}{stops_icon} <b>R${price:.0f}</b>")
+                    total += 1
+        else:
+            for f in day_flights:
+                price = f.get("price_brl") or 0
+                dep = f.get("departure_time", "??:??")
+                arr = f.get("arrival_time", "??:??")
+                dur = f.get("duration", "")
+                dur_str = f" ({dur})" if dur else ""
+                stops_icon = " 🔄" if f.get("stops", 0) > 0 else ""
+                lines.append(f"  {dep}→{arr}{dur_str}{stops_icon} <b>R${price:.0f}</b>")
+                total += 1
     summary = f"\n<i>{len(results)} datas com voos · {total} opções</i>"
     if failed_dates:
         fmt = [datetime.strptime(ds, "%Y-%m-%d").strftime("%d/%m") for ds in failed_dates]
-        summary += f"\n<i>⚠️ Sem resposta em: {', '.join(fmt)} (tente novamente)</i>"
+        summary += f"\n<i>⚠️ Sem resposta em: {', '.join(fmt)}</i>"
     lines.append(summary)
     return "\n".join(lines)
 
@@ -148,14 +178,17 @@ def main():
     sampled = total_raw == MAX_DATES and WEEKDAY is None  # só amostra quando qualquer dia
 
     logger.info(
-        "Buscando LATAM %s→%s | %d datas | %s | %s",
-        ORIGIN, DEST, total_raw, weekday_label, period_label,
+        "Buscando %s→%s | %d datas | %s | %s | cias=%s | max_stops=%s",
+        ORIGIN, DEST, total_raw, weekday_label, period_label, _AIRLINES_INPUT, MAX_STOPS,
     )
 
     sample_note = f"\n<i>⚡ Amostragem: {total_raw} datas espaçadas (máx {MAX_DATES})</i>" if sampled else ""
+    cia_desc = "todas as cias" if _AIRLINES_INPUT == "ALL" else _AIRLINES_INPUT
+    stops_desc = "diretos" if MAX_STOPS == 0 else f"até {MAX_STOPS} escala(s)"
     send_message(
         f"🔍 <b>Iniciando busca</b>\n"
-        f"LATAM <b>{ORIGIN}→{DEST}</b> | {MONTHS} meses | {weekday_label} | {period_label}\n"
+        f"<b>{ORIGIN}→{DEST}</b> | {MONTHS} meses | {weekday_label} | {period_label}\n"
+        f"🏢 {cia_desc} | {stops_desc}\n"
         f"📅 {total_raw} datas para verificar...{sample_note}"
     )
 
@@ -166,7 +199,9 @@ def main():
         if i > 0:
             time.sleep(2)  # evita bloqueio por rate limit do Google
         try:
-            flights = search_google_flights(ORIGIN, DEST, date_str)
+            flights = search_google_flights(
+                ORIGIN, DEST, date_str, airlines=AIRLINES_LIST, max_stops=MAX_STOPS
+            )
             flights = [f for f in flights if in_period(f.get("departure_time", ""), TIME_KEY)]
             if flights:
                 results[date_str] = sorted(
@@ -179,7 +214,9 @@ def main():
             logger.error("Erro %s→%s %s: %s", ORIGIN, DEST, date_str, exc)
             failed_dates.append(date_str)
 
-    result_text = format_results(ORIGIN, DEST, results, TIME_KEY, failed_dates)
+    result_text = format_results(
+        ORIGIN, DEST, results, TIME_KEY, failed_dates, airline_key=_AIRLINES_INPUT
+    )
 
     # Telegram: máx 4096 chars por mensagem
     for i in range(0, len(result_text), 4000):
