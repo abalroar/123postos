@@ -2,11 +2,12 @@
 LATAM Monitor Bot
 
 Comandos:
-  /start  — menu inicial + envio do guia "Como usar"
-  /run    — busca interativa URA (5 passos) → dispara GitHub Actions
-  /ajuda  — envia o arquivo "Como usar" (Markdown)
+  /start  — menu inicial + texto de ajuda no chat
+  /run    — busca interativa URA (7 passos) → dispara GitHub Actions
+  /ajuda  — reenvia o texto "Como usar"
   /status — estado do bot e uptime
   /last   — última execução agendada
+  /novidades — dispara comunicado para usuários autorizados
   /help   — lista de comandos
   /cancel — cancela busca em andamento
 """
@@ -40,18 +41,28 @@ from telegram.ext import (
 
 _ROOT = Path(__file__).parent
 load_dotenv(_ROOT / ".env")
-GUIDE_PATH = _ROOT / "docs" / "COMO_USAR_TELEGRAM.md"
-GUIDE_FALLBACK_TEXT = """# Como usar o bot no Telegram (URA)
 
-Comandos:
-- /start: menu inicial e envio deste guia
-- /run: busca interativa em 5 passos
-- /status: estado do bot
-- /last: última execução agendada
-- /cancel: cancela busca atual
-- /help: ajuda rápida
-- /ajuda: reenvia este guia
-"""
+HOW_TO_USE_TEXT = (
+    "📘 <b>Como usar o bot</b>\n\n"
+    "1) Digite <b>/run</b> para iniciar a busca guiada (7 passos).\n"
+    "2) Escolha origem, destino, meses, dia da semana, companhia, escalas e horário.\n"
+    "3) O bot executa a busca e envia os melhores resultados aqui no chat.\n\n"
+    "<b>Comandos úteis</b>\n"
+    "• /run — nova busca personalizada\n"
+    "• /status — estado do bot\n"
+    "• /last — última execução agendada\n"
+    "• /cancel — cancelar busca em andamento\n"
+    "• /help — resumo de comandos\n"
+)
+
+NEWS_BROADCAST_TEXT = (
+    "📢 <b>Novidade no Flight Monitor</b>\n\n"
+    "Agora a busca personalizada suporta:\n"
+    "• ✈️ Múltiplas companhias (LATAM, GOL, Azul ou todas)\n"
+    "• 🔄 Filtro de escalas (só direto ou até 1 escala)\n"
+    "• 📊 Resultado agrupado por companhia quando escolher “Todas”\n\n"
+    "Para testar agora, use <b>/run</b>."
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -112,6 +123,22 @@ WEEKDAY_LABEL = {
 }
 WEEKDAY_SHORT = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
+AIRLINE_BUTTONS = {
+    "✈️ LATAM": "LA",
+    "🟠 GOL": "G3",
+    "🔵 Azul": "AD",
+    "📋 Todas": "all",
+}
+
+AIRLINE_LABEL = {
+    "LA": "LATAM", "G3": "GOL", "AD": "Azul", "all": "Todas as cias",
+}
+
+STOPS_BUTTONS = {
+    "Só diretos": "0",
+    "Diretos + com escala": "1",
+}
+
 TIME_PERIODS = {
     "madrugada": ("🌙 Madrugada  00h–05h59", "00:00", "05:59"),
     "manha":     ("🌅 Manhã      06h–11h59", "06:00", "11:59"),
@@ -121,9 +148,9 @@ TIME_PERIODS = {
 }
 
 (PICK_ORIGIN, TYPE_ORIGIN, PICK_DEST, TYPE_DEST,
- PICK_MONTHS, PICK_WEEKDAY, PICK_TIME) = range(7)
+ PICK_MONTHS, PICK_WEEKDAY, PICK_AIRLINE, PICK_STOPS, PICK_TIME) = range(9)
 
-_STEP_HEADER = "✈️ <b>LATAM Monitor</b> — Nova busca\n─────────────────────\n"
+_STEP_HEADER = "✈️ <b>Flight Monitor</b> — Nova busca\n─────────────────────\n"
 
 # ---------------------------------------------------------------------------
 # Estado global
@@ -218,11 +245,26 @@ def _time_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def _airline_keyboard() -> InlineKeyboardMarkup:
+    items = list(AIRLINE_BUTTONS.items())
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(l, callback_data=v) for l, v in items[:2]],
+        [InlineKeyboardButton(l, callback_data=v) for l, v in items[2:]],
+    ])
+
+
+def _stops_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(l, callback_data=v) for l, v in STOPS_BUTTONS.items()],
+    ])
+
+
 # ---------------------------------------------------------------------------
 # GitHub Actions dispatch
 # ---------------------------------------------------------------------------
 def _trigger_github_actions(origin: str, dest: str, months: int,
                              weekday_num: int, time_key: str,
+                             airline_key: str, max_stops: int,
                              chat_id: int) -> bool:
     """Dispara workflow_dispatch no GitHub Actions. Retorna True se sucesso."""
     if not GITHUB_TOKEN:
@@ -238,6 +280,8 @@ def _trigger_github_actions(origin: str, dest: str, months: int,
                 "months":      str(months),
                 "weekday":     str(weekday_num),
                 "time_period": time_key,
+                "airlines":    airline_key,
+                "max_stops":   str(max_stops),
                 "chat_id":     str(chat_id),
             },
         },
@@ -268,12 +312,12 @@ def _in_period(dep_time: str, time_key: str) -> bool:
     return True
 
 
-def _run_custom_search_sync(origin, dest, months, weekday, time_key, notify_fn) -> dict:
+def _run_custom_search_sync(origin, dest, months, weekday, time_key, airlines_list, max_stops, notify_fn) -> dict:
     from src.google_flights_client import search_google_flights
     dates = _get_search_dates(months, weekday)
     if not dates:
         return {"results": {}, "failed": []}
-    notify_fn(f"🔍 Buscando <b>LATAM {origin}→{dest}</b>\n📅 {len(dates)} datas | ⏳ aguarde...")
+    notify_fn(f"🔍 Buscando <b>{origin}→{dest}</b>\n📅 {len(dates)} datas | ⏳ aguarde...")
     results: dict[str, list] = {}
     failed_dates: list[str] = []
     for i, d in enumerate(dates):
@@ -281,7 +325,7 @@ def _run_custom_search_sync(origin, dest, months, weekday, time_key, notify_fn) 
         if i > 0:
             time.sleep(2)  # evita bloqueio por rate limit do Google
         try:
-            flights = search_google_flights(origin, dest, date_str)
+            flights = search_google_flights(origin, dest, date_str, airlines=airlines_list, max_stops=max_stops)
             flights = [f for f in flights if _in_period(f.get("departure_time", ""), time_key)]
             if flights:
                 results[date_str] = sorted(flights, key=lambda f: (f["price_brl"], f["departure_time"]))
@@ -291,16 +335,16 @@ def _run_custom_search_sync(origin, dest, months, weekday, time_key, notify_fn) 
     return {"results": results, "failed": failed_dates}
 
 
-def _format_results(origin, dest, results, time_key, failed_dates=None) -> str:
+def _format_results(origin, dest, results, time_key, failed_dates=None, airline_key="LA") -> str:
     period_label = TIME_PERIODS[time_key][0]
     failed_dates = failed_dates or []
     if not results:
-        msg = f"❌ Nenhum voo LATAM encontrado\n<b>{origin}→{dest}</b> | {period_label}"
+        msg = f"❌ Nenhum voo encontrado\n<b>{origin}→{dest}</b> | {period_label}"
         if failed_dates:
             fmt = [datetime.strptime(ds, "%Y-%m-%d").strftime("%d/%m") for ds in failed_dates]
             msg += f"\n<i>⚠️ Erro ao consultar: {', '.join(fmt)}</i>"
         return msg
-    lines = [f"✈️ <b>LATAM {origin}→{dest}</b> | {period_label}\n"]
+    lines = [f"✈️ <b>{origin}→{dest}</b> | {period_label}\n"]
     total = 0
     for date_str in sorted(results):
         d = datetime.strptime(date_str, "%Y-%m-%d")
@@ -308,7 +352,10 @@ def _format_results(origin, dest, results, time_key, failed_dates=None) -> str:
         for f in results[date_str]:
             dep = f.get("departure_time","??:??"); arr = f.get("arrival_time","??:??")
             dur = f.get("duration",""); price = f.get("price_brl") or 0
-            lines.append(f"  {dep}→{arr}{' ('+dur+')' if dur else ''} <b>R${price:.0f}</b>")
+            cia = f.get("airline_name", "")
+            stops_icon = " 🔄" if f.get("stops", 0) > 0 else ""
+            cia_prefix = f"[{cia}] " if airline_key == "all" else ""
+            lines.append(f"  {cia_prefix}{dep}→{arr}{' ('+dur+')' if dur else ''}{stops_icon} <b>R${price:.0f}</b>")
             total += 1
     summary = f"\n<i>{len(results)} datas com voos · {total} opções</i>"
     if failed_dates:
@@ -325,6 +372,7 @@ async def cmd_run_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update):
         return ConversationHandler.END
     context.user_data.clear()
+    await update.message.reply_text(HOW_TO_USE_TEXT, parse_mode="HTML")
     await update.message.reply_text(
         _STEP_HEADER
         + "<b>Passo 1 de 5 — AEROPORTO DE ORIGEM</b>\n\n"
@@ -426,12 +474,48 @@ async def handle_weekday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     months = context.user_data["months"]
     await q.edit_message_text(
         _STEP_HEADER + f"✅ <b>{origin} → {dest}</b>  |  {months} meses  |  <b>{WEEKDAY_LABEL[weekday_num]}</b>\n\n"
-        "<b>Passo 5 de 5 — PERÍODO DO DIA</b>\n\n"
+        "<b>Passo 5 de 7 — COMPANHIA AÉREA</b>\n\n"
+        "Qual companhia deseja buscar?\n\n"
+        "  ✈️ <b>LATAM</b> — voos LA\n"
+        "  🟠 <b>GOL</b> — voos G3\n"
+        "  🔵 <b>Azul</b> — voos AD\n"
+        "  📋 <b>Todas</b> — todas as companhias",
+        reply_markup=_airline_keyboard(), parse_mode="HTML")
+    return PICK_AIRLINE
+
+
+async def handle_airline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    airline_key = q.data; context.user_data["airline_key"] = airline_key
+    origin = context.user_data["origin"]; dest = context.user_data["dest"]
+    months = context.user_data["months"]; weekday_num = context.user_data["weekday_num"]
+    cia_label = AIRLINE_LABEL.get(airline_key, airline_key)
+    await q.edit_message_text(
+        _STEP_HEADER + f"✅ <b>{origin} → {dest}</b>  |  {months} meses  |  {WEEKDAY_LABEL[weekday_num]}  |  <b>{cia_label}</b>\n\n"
+        "<b>Passo 6 de 7 — ESCALAS</b>\n\n"
+        "Incluir voos com escala nos resultados?\n\n"
+        "  <b>Só diretos</b> — mais rápido, menos opções\n"
+        "  <b>Diretos + com escala</b> — mais opções, pode ser mais barato",
+        reply_markup=_stops_keyboard(), parse_mode="HTML")
+    return PICK_STOPS
+
+
+async def handle_stops(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    max_stops = int(q.data); context.user_data["max_stops"] = max_stops
+    origin = context.user_data["origin"]; dest = context.user_data["dest"]
+    months = context.user_data["months"]; weekday_num = context.user_data["weekday_num"]
+    airline_key = context.user_data["airline_key"]
+    cia_label = AIRLINE_LABEL.get(airline_key, airline_key)
+    stops_label = "Só diretos" if max_stops == 0 else "Diretos + escalas"
+    await q.edit_message_text(
+        _STEP_HEADER + f"✅ <b>{origin} → {dest}</b>  |  {months}m  |  {WEEKDAY_LABEL[weekday_num]}  |  {cia_label}  |  {stops_label}\n\n"
+        "<b>Passo 7 de 7 — PERÍODO DO DIA</b>\n\n"
         "Em qual horário você prefere voar?\n\n"
         "  🌙 <b>Madrugada</b>  00h00 – 05h59\n"
         "  🌅 <b>Manhã</b>      06h00 – 11h59\n"
         "  🌆 <b>Tarde</b>      12h00 – 18h59\n"
-        "  🌃 <b>Noite</b>      19h00 – 23h59  ← ideal pós-trabalho\n"
+        "  🌃 <b>Noite</b>      19h00 – 23h59\n"
         "  ⏰ <b>Qualquer</b>   sem filtro de horário",
         reply_markup=_time_keyboard(), parse_mode="HTML")
     return PICK_TIME
@@ -444,6 +528,9 @@ async def handle_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     origin      = ud["origin"];      dest        = ud["dest"]
     months      = ud["months"];      weekday_num = ud["weekday_num"]
     time_key    = ud["time_key"]
+    airline_key = ud.get("airline_key", "LA")
+    max_stops = ud.get("max_stops", 0)
+    airlines_list = None if airline_key == "all" else [airline_key]
     day_label   = WEEKDAY_LABEL[weekday_num]
     period_label, min_t, max_t = TIME_PERIODS[time_key]
     horario_desc = f"{min_t}–{max_t}" if min_t and max_t else ("19h+" if min_t else "sem filtro")
@@ -454,7 +541,7 @@ async def handle_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Tenta disparar no GitHub Actions (nuvem) ──────────────────────────
     if GITHUB_TOKEN:
-        triggered = _trigger_github_actions(origin, dest, months, weekday_num, time_key, chat_id)
+        triggered = _trigger_github_actions(origin, dest, months, weekday_num, time_key, airline_key, max_stops, chat_id)
         if triggered:
             await q.edit_message_text(
                 _STEP_HEADER
@@ -497,9 +584,11 @@ async def handle_time(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         data = await loop.run_in_executor(
-            None, lambda: _run_custom_search_sync(origin, dest, months, py_weekday, time_key, notify)
+            None, lambda: _run_custom_search_sync(
+                origin, dest, months, py_weekday, time_key, airlines_list, max_stops, notify
+            )
         )
-        result_text = _format_results(origin, dest, data["results"], time_key, data.get("failed"))
+        result_text = _format_results(origin, dest, data["results"], time_key, data.get("failed"), airline_key=airline_key)
         for chunk in [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]:
             await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="HTML")
     except Exception as exc:
@@ -584,10 +673,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>LATAM Monitor</b>\n\n"
         f"/run — busca interativa URA → {cloud}\n"
-        "/start — menu inicial + guia\n"
-        "/ajuda — envia o guia 'Como usar'\n"
+        "/start — menu inicial + ajuda\n"
+        "/ajuda — reenvia o texto 'Como usar'\n"
         "/status — estado do bot\n"
         "/last — última execução agendada\n"
+        "/novidades — dispara comunicado para usuários\n"
         "/cancel — cancela busca\n"
         "/help — esta mensagem\n\n"
         f"⏰ Automático: {' e '.join(run_times)} ({tz})",
@@ -595,22 +685,23 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def _send_how_to_use_file(update: Update):
+async def _send_how_to_use_text(update: Update):
     message = update.effective_message
     if message is None:
-        logger.warning("Não foi possível enviar guia: update sem effective_message")
+        logger.warning("Não foi possível enviar ajuda: update sem effective_message")
         return
-    if not GUIDE_PATH.exists():
-        logger.warning("Guia ausente em %s; enviando fallback em texto.", GUIDE_PATH)
-        await message.reply_text(GUIDE_FALLBACK_TEXT)
-        return
-    with open(GUIDE_PATH, "rb") as guide_file:
-        await message.reply_document(
-            document=guide_file,
-            filename="Como_usar_Telegram.md",
-            caption="📘 Guia completo: <b>Como usar o bot no Telegram</b>",
-            parse_mode="HTML",
-        )
+    await message.reply_text(HOW_TO_USE_TEXT, parse_mode="HTML")
+
+
+async def _broadcast_news(context: ContextTypes.DEFAULT_TYPE):
+    sent = 0
+    for chat_id in ALLOWED_IDS:
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=NEWS_BROADCAST_TEXT, parse_mode="HTML")
+            sent += 1
+        except Exception as exc:
+            logger.error("Falha ao enviar novidades para %s: %s", chat_id, exc)
+    logger.info("Broadcast de novidades concluído: %d/%d chats", sent, len(ALLOWED_IDS))
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -621,22 +712,31 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "<b>Bem-vindo ao LATAM Monitor</b>\n\n"
         "Escolha como começar:\n"
-        "• /run — iniciar busca URA (5 passos)\n"
+        "• /run — iniciar busca URA (7 passos)\n"
         "• /ajuda — receber o guia 'Como usar'\n"
         "• /status — ver estado atual do bot\n"
         "• /last — ver última execução agendada\n"
+        "• /novidades — enviar comunicado de novidades\n"
         "• /help — resumo rápido dos comandos\n\n"
         f"Execução: {cloud}\n"
         f"⏰ Agendado: {' e '.join(run_times)} ({tz})",
         parse_mode="HTML",
     )
-    await _send_how_to_use_file(update)
+    await _send_how_to_use_text(update)
 
 
 async def cmd_ajuda(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update):
         return
-    await _send_how_to_use_file(update)
+    await _send_how_to_use_text(update)
+
+
+async def cmd_novidades(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update):
+        return
+    await update.message.reply_text("📣 Enviando novidades para usuários autorizados...", parse_mode="HTML")
+    await _broadcast_news(context)
+    await update.message.reply_text("✅ Novidades enviadas.", parse_mode="HTML")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -703,6 +803,8 @@ def main():
             TYPE_DEST:    [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_dest_type)],
             PICK_MONTHS:  [CallbackQueryHandler(handle_months)],
             PICK_WEEKDAY: [CallbackQueryHandler(handle_weekday)],
+            PICK_AIRLINE: [CallbackQueryHandler(handle_airline)],
+            PICK_STOPS:   [CallbackQueryHandler(handle_stops)],
             PICK_TIME:    [CallbackQueryHandler(handle_time)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
@@ -713,6 +815,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("ajuda", cmd_ajuda))
+    app.add_handler(CommandHandler("novidades", cmd_novidades))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("last", cmd_last))
     app.add_error_handler(error_handler)
