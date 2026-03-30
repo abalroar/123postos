@@ -26,6 +26,14 @@ on:
         description: 'Horario: madrugada / manha / tarde / noite / qualquer'
         required: false
         default: 'qualquer'
+      airlines:
+        description: 'Cia aérea: LA, G3, AD, ALL'
+        required: false
+        default: 'LA'
+      max_stops:
+        description: 'Escalas: 0=só direto, 1=até 1 escala'
+        required: false
+        default: '0'
       chat_id:
         description: 'Telegram chat_id do solicitante (para enviar resultado de volta)'
         required: false
@@ -69,4 +77,6 @@ jobs:
           SEARCH_MONTHS: ${{ inputs.months }}
           SEARCH_WEEKDAY: ${{ inputs.weekday }}
           SEARCH_TIME_PERIOD: ${{ inputs.time_period }}
+          SEARCH_AIRLINES: ${{ inputs.airlines }}
+          SEARCH_MAX_STOPS: ${{ inputs.max_stops }}
         run: python run_search.py

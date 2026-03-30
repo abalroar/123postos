@@ -11,6 +11,15 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Mapeamento: substring no f.name (upper) → (código IATA, nome curto)
+AIRLINE_PATTERNS: list[tuple[str, str, str]] = [
+    ("LATAM", "LA", "LATAM"),
+    ("GOL", "G3", "GOL"),
+    ("AZUL", "AD", "Azul"),
+    ("VOEPASS", "2Z", "Voepass"),
+    ("MAP", "7M", "MAP"),
+]
+
 
 def _parse_time(time_str: str) -> Optional[str]:
     """Converte '10:30 AM' ou '10:30' para 'HH:MM' (24h)."""
@@ -53,11 +62,22 @@ def _after_min_time(dep_time: str, min_dep_time: str) -> bool:
     return (dep_h, dep_m) >= (min_h, min_m)
 
 
+def _identify_airline(name: str) -> tuple[str, str]:
+    """Retorna (código IATA, nome curto) a partir do f.name do Google Flights."""
+    upper = (name or "").upper()
+    for pattern, code, display in AIRLINE_PATTERNS:
+        if pattern in upper:
+            return code, display
+    return "??", name or "Desconhecida"
+
+
 def search_google_flights(
     origin: str,
     dest: str,
     date_str: str,
     min_dep_time: Optional[str] = None,
+    airlines: Optional[list[str]] = None,
+    max_stops: Optional[int] = 0,
 ) -> list[dict]:
     """
     Busca voos LATAM diretos no Google Flights para a rota e data informadas.
@@ -103,18 +123,15 @@ def search_google_flights(
 
     flights = []
     seen: set[tuple] = set()
+    effective_airlines = airlines if airlines is not None else ["LA"]
 
     for f in result.flights:
-        # Filtra apenas voos LATAM
-        if "LATAM" not in (f.name or "").upper():
+        airline_code, airline_name = _identify_airline(f.name)
+        if airline_code not in effective_airlines:
             continue
 
-        # Filtra apenas voos diretos (sem escala)
-        # A biblioteca converte: en "Nonstop"→0, pt-BR "Sem escalas"→"Unknown",
-        # pt-BR "1 parada"→1, pt-BR "2 paradas"→2
-        # Portanto: int>0 = tem escala; 0 ou "Unknown" = direto
         stops_val = f.stops
-        if isinstance(stops_val, int) and stops_val > 0:
+        if max_stops is not None and isinstance(stops_val, int) and stops_val > max_stops:
             continue
 
         dep_time = _parse_time(f.departure)
@@ -129,14 +146,16 @@ def search_google_flights(
         if min_dep_time and not _after_min_time(dep_time, min_dep_time):
             continue
 
-        # Deduplica por (partida, chegada, preço) — a API retorna o mesmo voo
+        # Deduplica por (cia, partida, chegada, preço) — a API retorna o mesmo voo
         # múltiplas vezes em resultados diferentes (melhor preço, mais rápido, etc.)
-        key = (dep_time, arr_time, price)
+        key = (airline_code, dep_time, arr_time, price)
         if key in seen:
             continue
         seen.add(key)
 
         flights.append({
+            "airline": airline_code,
+            "airline_name": airline_name,
             "departure_time": dep_time,
             "arrival_time": arr_time,
             "price_brl": price,
@@ -145,13 +164,14 @@ def search_google_flights(
             "fare_family": "",
             "is_refundable": False,
             "duration": f.duration or "",
-            "stops": stops_val,
+            "stops": stops_val if isinstance(stops_val, int) else 0,
             "origin": origin.upper(),
             "destination": dest.upper(),
         })
 
+    cias = ",".join(effective_airlines) if airlines else "LA"
     logger.info(
-        "Google Flights %s->%s %s: %d voo(s) LATAM diretos (únicos)",
-        origin, dest, date_str, len(flights),
+        "Google Flights %s->%s %s: %d voo(s) [%s] (únicos)",
+        origin, dest, date_str, len(flights), cias,
     )
     return flights
